@@ -6,7 +6,7 @@
  * Paste it into PRODUCTION_API below (no trailing slash) and commit.
  */
 (function () {
-  var PRODUCTION_API = 'https://ikc-checkin-api.YOUR-SUBDOMAIN.workers.dev';
+  var PRODUCTION_API = 'https://ikc-checkin-api.drivers-briefing.workers.dev';
 
   var local = location.hostname === 'localhost'
     || location.hostname === '127.0.0.1'

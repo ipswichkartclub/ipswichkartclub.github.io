@@ -7,12 +7,12 @@ compatibility_date = "2025-09-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "ikc-checkin"
-database_id = "PASTE_YOUR_DATABASE_ID_HERE"
+database_id = "9b44c409-c7dd-42fa-b22e-0ebc54cd8470"
 
 [vars]
-# Lock this down to your GitHub Pages origin once you know it, e.g.
-# ALLOWED_ORIGINS = "https://yourname.github.io"
-ALLOWED_ORIGINS = "*"
+# Only the published site may call this API from a browser. Add more origins
+# comma-separated if you ever move to a custom domain.
+ALLOWED_ORIGINS = "https://hbwoody.github.io"
 
 # ADMIN_KEY is a secret, not a var. Set it with:
 #   npx wrangler secret put ADMIN_KEY
