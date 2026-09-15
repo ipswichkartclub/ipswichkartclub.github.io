@@ -1,0 +1,18 @@
+{
+  "name": "ikc-checkin-api",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cloudflare Worker + D1 API for the IKC driver briefing check-in",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create ikc-checkin",
+    "db:init": "wrangler d1 execute ikc-checkin --remote --file=./schema.sql",
+    "db:init:local": "wrangler d1 execute ikc-checkin --local --file=./schema.sql",
+    "secret": "wrangler secret put ADMIN_KEY",
+    "test": "node test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

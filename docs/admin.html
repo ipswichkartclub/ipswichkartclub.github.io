@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f172a">
+<meta name="robots" content="noindex, nofollow">
+<title>Check-in Admin</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">Check-in <span>Admin</span></div>
+  <div class="spacer"></div>
+  <button id="logoutBtn" class="ghost small hidden" style="color:#cbd5e1">Sign out</button>
+</header>
+
+<main class="wrap wide">
+
+  <!-- ---------------------------------------------------------- login -->
+  <div id="viewLogin" class="card hidden" style="max-width:420px;margin:40px auto">
+    <h2>Sign in</h2>
+    <p class="sub">Enter the admin key for the check-in system.</p>
+    <form id="loginForm">
+      <label class="field">
+        <span>Admin key</span>
+        <input type="password" id="adminKey" autocomplete="current-password" required>
+      </label>
+      <button type="submit" class="block">Sign in</button>
+    </form>
+    <div id="loginError" class="notice error hidden" style="margin-top:16px"></div>
+  </div>
+
+  <!-- --------------------------------------------------------- events -->
+  <div id="viewEvents" class="hidden">
+
+    <div class="card">
+      <h2>New race meeting</h2>
+      <p class="sub">Upload the entry list (.xlsx or .csv). Needs <b>Kart No</b>, <b>Entrant</b> and <b>Class</b> columns; <b>Guardian</b> and <b>CRN</b> are used if present.</p>
+
+      <label class="field">
+        <span>Event name</span>
+        <input type="text" id="newName" placeholder="e.g. 2026 IKC IROC Round 1" autocomplete="off">
+      </label>
+
+      <label class="field">
+        <span>Event date</span>
+        <input type="date" id="newDate">
+      </label>
+
+      <label class="field">
+        <span>Entry list</span>
+        <input type="file" id="newFile" accept=".xlsx,.xls,.csv">
+      </label>
+
+      <div id="parseError" class="notice error hidden"></div>
+      <div id="parseWarn" class="notice hidden"></div>
+
+      <div id="previewBox" class="hidden">
+        <h3>Preview</h3>
+        <div class="stats">
+          <div class="stat"><div class="n" id="pvPeople">0</div><div class="l">People</div></div>
+          <div class="stat"><div class="n" id="pvEntries">0</div><div class="l">Entries</div></div>
+          <div class="stat"><div class="n" id="pvClasses">0</div><div class="l">Classes</div></div>
+          <div class="stat"><div class="n" id="pvJuniors">0</div><div class="l">With guardian</div></div>
+        </div>
+        <table class="preview-table" id="pvTable"></table>
+      </div>
+
+      <div class="btn-row" style="margin-top:18px">
+        <button id="createBtn" disabled>Create event</button>
+      </div>
+      <div id="createError" class="notice error hidden" style="margin-top:16px"></div>
+    </div>
+
+    <div class="section-head">
+      <h2>Race meetings</h2>
+      <p class="sub" id="eventsSub">&nbsp;</p>
+    </div>
+    <div id="eventsList"></div>
+  </div>
+
+  <!-- ---------------------------------------------------------- event -->
+  <div id="viewEvent" class="hidden">
+
+    <button id="backBtn" class="ghost small no-print" style="margin-bottom:8px">&larr; All meetings</button>
+
+    <div class="event-head">
+      <h1 id="evName"></h1>
+      <div class="date"><span id="evDate"></span> <span id="evStatus"></span></div>
+    </div>
+
+    <div class="card">
+      <div class="stats">
+        <div class="stat bad"><div class="n" id="stMissing">0</div><div class="l">Not checked in</div></div>
+        <div class="stat good"><div class="n" id="stDone">0</div><div class="l">Checked in</div></div>
+        <div class="stat"><div class="n" id="stPeople">0</div><div class="l">Drivers</div></div>
+        <div class="stat"><div class="n" id="stEntries">0</div><div class="l">Entries</div></div>
+      </div>
+      <div class="bar"><i id="stBar" style="width:0%"></i></div>
+      <div class="small muted" id="stCaption"></div>
+
+      <div class="btn-row no-print" style="margin-top:16px;align-items:center">
+        <button id="refreshBtn" class="secondary small">Refresh now</button>
+        <label class="small muted" style="display:flex;align-items:center;gap:6px;white-space:nowrap">
+          <input type="checkbox" id="autoRefresh" style="width:auto" checked> Auto-refresh
+        </label>
+        <span id="lastUpdated" class="small muted"></span>
+        <div style="flex:1"></div>
+        <button id="toggleStatusBtn" class="secondary small">Close check-in</button>
+        <button id="deleteBtn" class="danger small">Delete meeting</button>
+      </div>
+    </div>
+
+    <div class="card no-print">
+      <h3>Check-in QR code</h3>
+      <div class="qr-panel">
+        <div class="qr-box" id="qrBox"></div>
+        <div class="qr-side">
+          <div class="link-box" id="qrLink"></div>
+          <div class="btn-row">
+            <button id="copyLinkBtn" class="secondary small">Copy link</button>
+            <button id="downloadQrBtn" class="secondary small">Download PNG</button>
+            <button id="printQrBtn" class="secondary small">Print poster</button>
+          </div>
+          <p class="small muted" style="margin-bottom:0">Print this and display it at the driver briefing. Anyone who scans it lands straight on the check-in page for this meeting.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="tabs no-print">
+        <button id="tabMissing"  aria-selected="true">Not checked in</button>
+        <button id="tabDone"     aria-selected="false">Checked in</button>
+        <button id="tabByClass"  aria-selected="false">By class</button>
+      </div>
+
+      <div class="btn-row no-print" style="margin-bottom:14px">
+        <input type="search" id="peopleSearch" placeholder="Search name, kart number or class" style="flex:1 1 220px">
+        <button id="exportBtn" class="secondary small">Export CSV</button>
+        <button id="printBtn" class="secondary small">Print list</button>
+      </div>
+
+      <div id="paneBody"></div>
+    </div>
+  </div>
+
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="assets/config.js"></script>
+<script src="assets/admin.js"></script>
+</body>
+</html>

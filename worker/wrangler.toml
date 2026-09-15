@@ -1,0 +1,18 @@
+name = "ikc-checkin-api"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# Created with:  npx wrangler d1 create ikc-checkin
+# Paste the printed database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "ikc-checkin"
+database_id = "PASTE_YOUR_DATABASE_ID_HERE"
+
+[vars]
+# Lock this down to your GitHub Pages origin once you know it, e.g.
+# ALLOWED_ORIGINS = "https://yourname.github.io"
+ALLOWED_ORIGINS = "*"
+
+# ADMIN_KEY is a secret, not a var. Set it with:
+#   npx wrangler secret put ADMIN_KEY

@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<title>Driver Briefing Check-in</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">Driver Briefing <span>Check-in</span></div>
+  <div class="spacer"></div>
+  <div class="meta" id="topMeta"></div>
+</header>
+
+<main class="wrap">
+
+  <!-- loading -->
+  <div id="viewLoading" class="card">
+    <p class="muted"><span class="spinner"></span>Loading event&hellip;</p>
+  </div>
+
+  <!-- no / bad event id -->
+  <div id="viewNoEvent" class="card hidden">
+    <h2>No event selected</h2>
+    <p class="sub">This page needs an event link. Scan the QR code displayed at the driver briefing, or ask an official for the check-in link.</p>
+    <div id="noEventDetail" class="notice error hidden"></div>
+  </div>
+
+  <!-- closed -->
+  <div id="viewClosed" class="card hidden">
+    <div class="result warn">
+      <div class="icon">&#9209;</div>
+      <h2>Check-in is closed</h2>
+      <p class="detail" id="closedDetail"></p>
+    </div>
+  </div>
+
+  <!-- picker -->
+  <div id="viewPicker" class="hidden">
+    <div class="event-head">
+      <h1 id="eventName"></h1>
+      <div class="date" id="eventDate"></div>
+    </div>
+
+    <div class="card">
+      <h2>Check in</h2>
+      <p class="sub">Select your class, then find yourself by kart number or name.</p>
+
+      <label class="field">
+        <span>Class</span>
+        <select id="classSelect">
+          <option value="">Select your class&hellip;</option>
+        </select>
+      </label>
+
+      <div id="driverStep" class="hidden">
+        <label class="field picker-search">
+          <span>Find yourself</span>
+          <input type="search" id="driverSearch" placeholder="Kart number or name" autocomplete="off" enterkeyhint="search">
+        </label>
+        <ul class="driver-list" id="driverList"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- confirm -->
+  <div id="viewConfirm" class="card hidden">
+    <div class="result">
+      <h2>Is this you?</h2>
+      <div class="who" id="confirmWho"></div>
+      <div class="detail" id="confirmDetail"></div>
+      <div class="covers hidden" id="confirmCovers">
+        <strong>This check-in covers</strong>
+        <div id="confirmCoversList"></div>
+      </div>
+    </div>
+    <label class="ack" for="ackCheck">
+      <input type="checkbox" id="ackCheck">
+      <span id="ackText"></span>
+    </label>
+
+    <div class="btn-row" style="margin-top:18px">
+      <button id="confirmBtn" class="block" disabled>Yes, check me in</button>
+      <button id="confirmBack" class="secondary block">No, go back</button>
+    </div>
+    <p id="ackHint" class="small muted" style="text-align:center;margin:12px 0 0">
+      Tick the box above to enable check-in.
+    </p>
+    <div id="confirmError" class="notice error hidden" style="margin-top:16px"></div>
+  </div>
+
+  <!-- result -->
+  <div id="viewResult" class="card hidden">
+    <div class="result" id="resultBox">
+      <div class="icon" id="resultIcon"></div>
+      <h2 id="resultTitle"></h2>
+      <div class="who" id="resultWho"></div>
+      <div class="detail" id="resultDetail"></div>
+      <div class="covers hidden" id="resultCovers">
+        <strong id="resultCoversLabel">This check-in covers</strong>
+        <div id="resultCoversList"></div>
+      </div>
+    </div>
+    <div class="btn-row" style="margin-top:24px">
+      <button id="resultDone" class="secondary block">Check in someone else</button>
+    </div>
+  </div>
+
+</main>
+
+<script src="assets/config.js"></script>
+<script src="assets/checkin.js"></script>
+</body>
+</html>
