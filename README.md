@@ -93,32 +93,47 @@ separate budgets so a racing parent can do their kids *and* themselves:
 | | Per device |
 |---|---|
 | Adults (`Not Applicable`) | 1 |
-| Juniors (guardian named) | 2 |
+| Juniors (guardian named) | 4 |
 
-A second adult, or a third junior, gets the **already checked in** page. Change
-the numbers with the `DEVICE_LIMIT_ADULT` / `DEVICE_LIMIT_JUNIOR` vars in
-`wrangler.toml`.
+Change the numbers with the `DEVICE_LIMIT_ADULT` / `DEVICE_LIMIT_JUNIOR` vars in
+`wrangler.toml`. These are only a backstop — see **One device, one person**
+below for the rule that actually governs who may check in whom.
 
-### The guardian must match
+### One device, one person
 
-The first junior checked in on a device binds that device to their guardian. A
-later junior from the same device must share a guardian, otherwise the check-in
-is rejected — so a parent can do their own children but not another family's.
+The first check-in on a device **binds that device to a single person**, and
+everything checked in afterwards must resolve to that same person:
 
-Guardians are compared on the **member number in brackets**, not the name, and a
-match needs only one guardian in common. That handles the shapes that actually
-turn up in an entry list:
+- an **adult** binds the device to *themselves*
+- a **junior** binds it to *their guardian*
 
-| First junior | Second junior | Result |
+That covers all three orderings:
+
+| First on the device | Then | Result |
 |---|---|---|
-| `Sam Example (1001)` | `Sam Example (1001)` | allowed — siblings |
-| `Sam Example (1001), Alex Example (1002)` | `Alex Example (1002), Sam Example (1001)` | allowed — same parents, listed in a different order |
-| `Sam Example (1001), Alex Example (1002)` | `Alex Example (1002)` | allowed — one child lists both parents, the other lists one |
-| `Sam Example (1001)` | `Jo Other (2001)` | **rejected** — different family |
+| checked in as a driver | a minor they are **not** the guardian of | **rejected** |
+| checked in as a driver | a minor they **are** the guardian of | allowed |
+| a minor | a sibling with the same guardian | allowed |
+| a minor | a minor with a different guardian | **rejected** |
+| a minor | themselves as a driver, **being** that guardian | allowed |
+| a minor | themselves as a driver, **not** that guardian | **rejected** |
 
-The driver sees which check-in blocked them and is told to use their own
-guardian's phone, or see an official. Adults are unaffected by this rule, so a
-racing parent can still check themselves in on the same phone.
+Identity is matched on the **member number in brackets** first, falling back to
+the name — so a racing parent is recognised as the guardian because the CRN in
+their child's Guardian column is their own CRN. A match needs only one identity
+in common, which handles the shapes that actually appear in an entry list:
+siblings listing the same two parents in a different order, or one child listing
+both parents while another lists only one.
+
+Anyone rejected is told to **see an official at the driver briefing**, who can
+check them in manually from the admin page. No guardian names are ever shown on
+the rejection screen or returned by the API.
+
+There is still a backstop cap per device (1 adult, 4 juniors) purely to bound
+abuse, but the identity rule is the real control. The junior cap has to clear
+the largest family actually racing — the 2026 IROC list contains two guardians
+with **three** children entered, so a cap of 2 would have turned real families
+away.
 
 Independently of the device rule, **a person can never be checked in twice** —
 tapping the same driver from any device shows the already-checked-in page. That

@@ -172,15 +172,16 @@ console.log('\n=== 5. same person again (different device) ===');
 r = await call('POST', '/api/checkin', { body: { eventId: EV, personId: BRODIE, acknowledged: true, ackText: 'I have read the briefing notes', deviceId: 'dev-other' } });
 check('already / person', r.body.status === 'already' && r.body.reason === 'person', r.body);
 
-console.log('\n=== 6. adult device limit = 1 ===');
+console.log('\n=== 6. a device is bound to the first adult who uses it ===');
 r = await call('POST', '/api/checkin', { body: { eventId: EV, personId: ADAM, acknowledged: true, ackText: 'I have read the briefing notes', deviceId: 'dev-adult' } });
 check('first adult ok', r.body.status === 'ok', r.body);
 const otherAdult = roster.entries.find(e => !e.isJunior && e.personId !== ADAM && e.personId !== BRODIE);
 r = await call('POST', '/api/checkin', { body: { eventId: EV, personId: otherAdult.personId, acknowledged: true, ackText: 'I have read the briefing notes', deviceId: 'dev-adult' } });
-check('second adult on same device blocked', r.body.status === 'already' && r.body.reason === 'device', r.body);
-check('block names who used the device', r.body.previous[0].entrant === adult.entrant, r.body.previous);
+check('a different adult on the same device is rejected', r.body.status === 'already' && r.body.reason === 'identity', r.body);
+check('...reported as bound to a driver', r.body.boundTo === 'driver', r.body.boundTo);
+check('...naming who used the device', r.body.previous[0].entrant === adult.entrant, r.body.previous);
 
-console.log('\n=== 7. guardian device allowance = 2 (siblings) ===');
+console.log('\n=== 7. a guardian may check in all of their own children ===');
 const juniors = roster.entries.filter(e => e.isJunior);
 // group juniors into families by guardian (only the admin view exposes it)
 const adminPeople = (await call('GET', '/api/admin/events/' + EV, { key: ADMIN_KEY })).body.people;
@@ -197,35 +198,32 @@ const checkIn = (pid, dev) => call('POST', '/api/checkin', {
   body: { eventId: EV, personId: pid, acknowledged: true, ackText: 'I have read the briefing notes', deviceId: dev },
 });
 r = await checkIn(fam1[0], 'dev-parent');
-check('junior 1 ok', r.body.status === 'ok', r.body);
+check('child 1 ok', r.body.status === 'ok', r.body);
 r = await checkIn(fam1[1], 'dev-parent');
-check('sibling 2 ok (second attempt allowed)', r.body.status === 'ok', r.body);
+check('sibling 2 ok', r.body.status === 'ok', r.body);
 r = await checkIn(fam1[2], 'dev-parent');
-check('sibling 3 blocked by the device limit', r.body.status === 'already' && r.body.reason === 'device', r.body);
+check('sibling 3 ok - a 2-child cap would have blocked a real family', r.body.status === 'ok', r.body);
 
-console.log('\n=== 8. racing parent: 2 kids then themselves ===');
+console.log('\n=== 8. an unrelated adult cannot ride on a guardian-bound device ===');
 const fam2 = bigFamilies[1];
-r = await checkIn(fam2[0], 'dev-racingparent');
+r = await checkIn(fam2[0], 'dev-guardian2');
 check('kid 1 ok', r.body.status === 'ok', r.body);
-r = await checkIn(fam2[1], 'dev-racingparent');
+r = await checkIn(fam2[1], 'dev-guardian2');
 check('kid 2 ok', r.body.status === 'ok', r.body);
 const parentAdult = roster.entries.find(e => !e.isJunior && ![ADAM, BRODIE, otherAdult.personId].includes(e.personId));
-r = await checkIn(parentAdult.personId, 'dev-racingparent');
-check('parent can still check THEMSELVES in (separate adult budget)', r.body.status === 'ok', r.body);
-r = await checkIn(fam2[2], 'dev-racingparent');
-check('but a 3rd kid is still blocked', r.body.status === 'already' && r.body.reason === 'device', r.body);
-const otherAdult2 = roster.entries.find(e => !e.isJunior &&
-  ![ADAM, BRODIE, otherAdult.personId, parentAdult.personId].includes(e.personId));
-r = await checkIn(otherAdult2.personId, 'dev-racingparent');
-check('and a 2nd adult is still blocked', r.body.status === 'already' && r.body.reason === 'device', r.body);
+r = await checkIn(parentAdult.personId, 'dev-guardian2');
+check('an adult who is NOT their guardian is rejected', r.body.status === 'already' && r.body.reason === 'identity', r.body);
+check('...reported as bound to a guardian', r.body.boundTo === 'guardian', r.body.boundTo);
+// the genuine racing-parent case (guardian who also races) is covered in 8b
 
-console.log('\n=== 8b. a device is bound to the first junior\'s guardian ===');
+console.log('\n=== 8b. a device is bound to ONE person (driver or guardian) ===');
 {
-  // Build a dedicated event so the guardian shapes are exactly what we want.
+  // "Pat Racer" is BOTH a racing adult (crn P1) and the guardian of Kid E1.
   const G = (n) => `Parent ${n} (2026${n})`;
   const rows = [
     { kartNo: '1', entrant: 'Kid A1', class: 'Cadet 9', crn: 'A1', guardian: G(1) },
     { kartNo: '2', entrant: 'Kid A2', class: 'Cadet 9', crn: 'A2', guardian: G(1) },
+    { kartNo: '9', entrant: 'Kid A3', class: 'Cadet 12', crn: 'A3', guardian: G(1) },
     { kartNo: '3', entrant: 'Kid B1', class: 'Cadet 9', crn: 'B1', guardian: G(2) },
     // siblings listing the same two parents in the OPPOSITE order
     { kartNo: '4', entrant: 'Kid C1', class: 'Cadet 9', crn: 'C1', guardian: `${G(3)}, ${G(4)}` },
@@ -233,56 +231,85 @@ console.log('\n=== 8b. a device is bound to the first junior\'s guardian ===');
     // one child lists both parents, the other lists only one of them
     { kartNo: '6', entrant: 'Kid D1', class: 'Cadet 9', crn: 'D1', guardian: `${G(5)}, ${G(6)}` },
     { kartNo: '7', entrant: 'Kid D2', class: 'Cadet 9', crn: 'D2', guardian: G(6) },
-    { kartNo: '8', entrant: 'Grown Up', class: 'DD2', crn: 'E1', guardian: 'Not Applicable' },
+    // a racing parent and their child
+    { kartNo: '8', entrant: 'Pat Racer', class: 'DD2', crn: 'P1', guardian: 'Not Applicable' },
+    { kartNo: '10', entrant: 'Kid E1', class: 'Cadet 9', crn: 'E1', guardian: 'Pat Racer (P1)' },
+    { kartNo: '11', entrant: 'Sol Driver', class: 'DD2', crn: 'S1', guardian: 'Not Applicable' },
+    // spares, so each assertion below uses someone not yet checked in
+    { kartNo: '12', entrant: 'Kid B2', class: 'Cadet 12', crn: 'B2', guardian: G(2) },
+    { kartNo: '13', entrant: 'Ann Other', class: 'DD2', crn: 'S2', guardian: 'Not Applicable' },
   ];
-  const made = await call('POST', '/api/admin/events', {
-    key: ADMIN_KEY, body: { name: 'Guardian rules', rows },
-  });
-  const GEV = made.body.event.id;
-  const ros = (await call('GET', '/api/events/' + GEV)).body.entries;
-  const id = (name) => ros.find((e) => e.entrant === name).personId;
-  const go = (name, dev) => call('POST', '/api/checkin', {
-    body: { eventId: GEV, personId: id(name), acknowledged: true, deviceId: dev },
-  });
+  const mk = async (name) => {
+    const r = await call('POST', '/api/admin/events', { key: ADMIN_KEY, body: { name, rows } });
+    const ev = r.body.event.id;
+    const ros = (await call('GET', '/api/events/' + ev)).body.entries;
+    return {
+      ev,
+      id: (n) => ros.find((e) => e.entrant === n).personId,
+      go: (n, d) => call('POST', '/api/checkin', {
+        body: { eventId: ev, personId: ros.find((e) => e.entrant === n).personId, acknowledged: true, deviceId: d },
+      }),
+    };
+  };
 
-  let x = await go('Kid A1', 'phone-A');
+  const A = await mk('Identity rules');
+  let x;
+
+  console.log('  -- minor, then minor --');
+  x = await A.go('Kid A1', 'phone-A');
   check('first junior checks in', x.body.status === 'ok', x.body);
-  x = await go('Kid A2', 'phone-A');
-  check('sibling with the same guardian is allowed', x.body.status === 'ok', x.body);
+  x = await A.go('Kid A2', 'phone-A');
+  check('sibling with the same guardian allowed', x.body.status === 'ok', x.body);
+  x = await A.go('Kid A3', 'phone-A');
+  check('THIRD sibling allowed (3-child families exist in the real list)', x.body.status === 'ok', x.body);
+  x = await A.go('Kid B1', 'phone-A');
+  check('different guardian REJECTED', x.body.status === 'already' && x.body.reason === 'identity', x.body);
+  check('...device reported as bound to a guardian', x.body.boundTo === 'guardian', x.body.boundTo);
+  check('...no guardian name leaked', !/Parent \d/.test(JSON.stringify(x.body)), x.body);
+  check('...and nothing recorded',
+    db.prepare('SELECT COUNT(*) c FROM checkins WHERE person_id = ?').get(A.id('Kid B1')).c === 0);
+  x = await A.go('Kid B1', 'phone-B');
+  check('that child succeeds on their own guardian phone', x.body.status === 'ok', x.body);
 
-  x = await go('Kid B1', 'phone-A');
-  check('different guardian is REJECTED', x.body.status === 'already' && x.body.reason === 'guardian', x.body);
-  check('...naming the driver already checked in', x.body.previous[0].entrant === 'Kid A1', x.body.previous);
-  // privacy: the rejection must not disclose anybody's guardian
-  check('...WITHOUT leaking any guardian name', !/Parent \d/.test(JSON.stringify(x.body)), x.body);
-  check('...and no guardian field on the previous entry',
-    !('guardian' in x.body.previous[0]), x.body.previous[0]);
-  check('...and nothing was recorded for them',
-    db.prepare('SELECT COUNT(*) c FROM checkins WHERE person_id = ?').get(id('Kid B1')).c === 0);
+  console.log('  -- driver, then minor --');
+  x = await A.go('Sol Driver', 'phone-S');
+  check('adult checks in', x.body.status === 'ok', x.body);
+  x = await A.go('Kid D1', 'phone-S');
+  check('adult who is NOT the guardian is REJECTED', x.body.status === 'already' && x.body.reason === 'identity', x.body);
+  check('...device reported as bound to a driver', x.body.boundTo === 'driver', x.body.boundTo);
 
-  x = await go('Kid B1', 'phone-B');
-  check('same driver succeeds from their own guardian\'s phone', x.body.status === 'ok', x.body);
+  x = await A.go('Pat Racer', 'phone-P');
+  check('racing parent checks in as a driver', x.body.status === 'ok', x.body);
+  x = await A.go('Kid E1', 'phone-P');
+  check('...then their OWN child is allowed', x.body.status === 'ok', x.body);
+  x = await A.go('Kid B2', 'phone-P');
+  check('...but another family child is rejected',
+    x.body.status === 'already' && x.body.reason === 'identity', x.body);
 
-  x = await go('Kid C1', 'phone-C');
-  check('two-parent sibling 1 ok', x.body.status === 'ok', x.body);
-  x = await go('Kid C2', 'phone-C');
-  check('sibling listing the same parents in reverse order matches', x.body.status === 'ok', x.body);
+  console.log('  -- minor, then driver --');
+  x = await A.go('Kid C1', 'phone-C');
+  check('junior checks in', x.body.status === 'ok', x.body);
+  x = await A.go('Kid C2', 'phone-C');
+  check('sibling in reverse parent order matches', x.body.status === 'ok', x.body);
+  x = await A.go('Ann Other', 'phone-C');
+  check('unrelated adult REJECTED after minors',
+    x.body.status === 'already' && x.body.reason === 'identity', x.body);
+  check('...device reported as bound to a guardian', x.body.boundTo === 'guardian', x.body.boundTo);
 
-  x = await go('Kid D1', 'phone-D');
-  check('sibling listing two parents ok', x.body.status === 'ok', x.body);
-  x = await go('Kid D2', 'phone-D');
-  check('sibling listing only one of those parents still matches', x.body.status === 'ok', x.body);
+  const B = await mk('Identity rules 2');
+  x = await B.go('Kid E1', 'phone-R');
+  check('child checks in first', x.body.status === 'ok', x.body);
+  x = await B.go('Pat Racer', 'phone-R');
+  check('...then their guardian can check in as a DRIVER', x.body.status === 'ok', x.body);
 
-  // the guardian rule must not disturb the adult budget
-  x = await go('Grown Up', 'phone-A');
-  check('adult on a junior-bound device is unaffected', x.body.status === 'ok', x.body);
+  console.log('  -- partial guardian overlap --');
+  x = await A.go('Kid D1', 'phone-D');
+  check('child listing two parents ok', x.body.status === 'ok', x.body);
+  x = await A.go('Kid D2', 'phone-D');
+  check('sibling listing only one of them still matches', x.body.status === 'ok', x.body);
 
-  // guardian mismatch is reported ahead of the 2-junior limit
-  x = await go('Kid B1', 'phone-C');
-  check('already-checked-in driver still reports as already in',
-    x.body.status === 'already' && x.body.reason === 'person', x.body);
-
-  await call('DELETE', '/api/admin/events/' + GEV, { key: ADMIN_KEY });
+  await call('DELETE', '/api/admin/events/' + A.ev, { key: ADMIN_KEY });
+  await call('DELETE', '/api/admin/events/' + B.ev, { key: ADMIN_KEY });
 }
 
 console.log('\n=== 8c. chunked upload matches a single-shot upload ===');

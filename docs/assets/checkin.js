@@ -289,17 +289,36 @@
       }
       markCheckedIn(res.person.personId);
 
-    } else if (res.status === 'already' && res.reason === 'guardian') {
+    } else if (res.status === 'already' && res.reason === 'identity') {
       box.classList.add('warn');
       $('resultIcon').innerHTML = '&#9888;';
-      $('resultTitle').textContent = 'Different guardian';
+      $('resultTitle').textContent = 'Please see an official';
       $('resultWho').textContent = res.person.entrant;
-      var first = (res.previous || [])[0] || {};
-      $('resultDetail').innerHTML =
-        'This phone has already been used to check in <b>' + esc(first.entrant || 'another driver')
-        + '</b>, who is listed under a different guardian.<br><br>'
-        + esc(res.person.entrant) + ' needs to check in from their own guardian&rsquo;s phone. '
-        + 'If that is not possible, please see an official at the briefing.';
+
+      var prev = res.previous || [];
+      var names = prev.map(function (p) { return p.entrant; });
+      var nameList = names.length > 1
+        ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]
+        : (names[0] || 'another driver');
+
+      var why;
+      if (res.boundTo === 'driver' && res.person.isJunior) {
+        // checked in as a driver first, now trying to check in a minor
+        why = 'This phone was used to check in <b>' + esc(nameList) + '</b> as a driver, '
+          + 'and that name is not listed as ' + esc(res.person.entrant) + '&rsquo;s guardian.';
+      } else if (res.boundTo === 'guardian' && !res.person.isJunior) {
+        // checked in minors first, now trying to check in as a driver
+        why = 'This phone was used to check in <b>' + esc(nameList) + '</b> under their guardian, '
+          + 'and ' + esc(res.person.entrant) + ' is not listed as that guardian.';
+      } else {
+        // minor then a minor with a different guardian
+        why = 'This phone was used to check in <b>' + esc(nameList) + '</b>, '
+          + 'who has a different guardian listed.';
+      }
+
+      $('resultDetail').innerHTML = why
+        + '<br><br>Please see an official at the driver briefing and they will check '
+        + esc(res.person.entrant) + ' in.';
 
     } else if (res.status === 'already' && res.reason === 'device') {
       box.classList.add('warn');

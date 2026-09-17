@@ -62,54 +62,83 @@ function isJuniorGuardian(guardian) {
 }
 
 /**
- * Break a Guardian cell into comparable identities.
- *
- * The column looks like "Nathan Mills (22011751), Katrice Mills (202400033)".
- * The bracketed member number is the stable identity, so it is preferred; the
- * name is only used when a row has no number. Returning a LIST matters:
- * siblings often list the same two parents in a different order, or one child
- * lists both parents and the other only lists one.
+ * Break a Guardian cell into its individual guardians.
+ * The column looks like "Nathan Mills (22011751), Katrice Mills (202400033)",
+ * where the bracketed value is that guardian's member number.
  */
-function guardianKeys(guardian) {
-  const raw = String(guardian || '').trim();
-  if (!raw || raw.toLowerCase() === 'not applicable') return [];
+function parseGuardians(raw) {
+  const text = String(raw || '').trim();
+  if (!text || text.toLowerCase() === 'not applicable') return [];
 
-  const ids = [];
-  const re = /\(([^)]+)\)/g;
+  const out = [];
+  const re = /([^,()]+?)\s*\(([^)]*)\)/g;
   let m;
-  while ((m = re.exec(raw)) !== null) {
-    const id = m[1].trim().toLowerCase();
-    if (id) ids.push('id:' + id);
+  while ((m = re.exec(text)) !== null) {
+    out.push({ name: normaliseName(m[1]), id: m[2].trim().toLowerCase() });
   }
-  if (ids.length) return ids;
+  if (out.length) return out;
 
-  return raw.split(',')
-    .map((s) => s.trim().toLowerCase().replace(/\s+/g, ' '))
+  // no bracketed numbers - fall back to comma separated names
+  return text.split(',')
+    .map((s) => normaliseName(s))
     .filter(Boolean)
-    .map((n) => 'name:' + n);
-}
-
-/** True when two guardian cells name at least one guardian in common. */
-function sameGuardian(a, b) {
-  const ka = guardianKeys(a);
-  const kb = guardianKeys(b);
-  if (!ka.length || !kb.length) return false;
-  return ka.some((k) => kb.indexOf(k) !== -1);
+    .map((name) => ({ name, id: '' }));
 }
 
 /**
- * Device allowance, counted separately so a racing parent can check in their
- * kids AND themselves from the one phone:
- *   - at most 1 adult   (guardian = "Not Applicable")  per device
- *   - at most 2 juniors (guardian filled in)           per device
- * Override per deployment with the DEVICE_LIMIT_ADULT / DEVICE_LIMIT_JUNIOR vars.
+ * Identity keys are how we decide "these are the same person".
+ * Both the member number and the name are emitted so a match succeeds on
+ * either: entry lists are inconsistent about which is present.
+ */
+function guardianKeys(guardian) {
+  const keys = [];
+  for (const g of parseGuardians(guardian)) {
+    if (g.id) keys.push('id:' + g.id);
+    if (g.name) keys.push('name:' + g.name);
+  }
+  return keys;
+}
+
+/** Who this person IS, as opposed to who is responsible for them. */
+function personKeys(person) {
+  const keys = [];
+  const crn = String(person.crn || '').trim().toLowerCase();
+  const name = normaliseName(person.entrant);
+  if (crn) keys.push('id:' + crn);
+  if (name) keys.push('name:' + name);
+  return keys;
+}
+
+/**
+ * The identity a check-in binds a device to.
+ *
+ * An adult binds the device to themselves. A junior binds it to their
+ * guardian. Every later check-in on that device must resolve to the same
+ * person, which is what stops someone checking in a child they are not
+ * responsible for, in either order.
+ */
+function identityKeys(person) {
+  const junior = person.is_junior !== undefined ? person.is_junior : person.isJunior;
+  return junior ? guardianKeys(person.guardian) : personKeys(person);
+}
+
+function keysOverlap(a, b) {
+  if (!a.length || !b.length) return false;
+  return a.some((k) => b.indexOf(k) !== -1);
+}
+
+/**
+ * Backstop caps per device. The identity rule below is the real control, so
+ * these only exist to bound abuse: the junior cap must be high enough to cover
+ * the largest family actually racing (there are 3-child families in the 2026
+ * IROC list). Override with DEVICE_LIMIT_ADULT / DEVICE_LIMIT_JUNIOR.
  */
 function deviceLimits(env) {
   const adult = parseInt(env.DEVICE_LIMIT_ADULT, 10);
   const junior = parseInt(env.DEVICE_LIMIT_JUNIOR, 10);
   return {
     adult: Number.isFinite(adult) && adult > 0 ? adult : 1,
-    junior: Number.isFinite(junior) && junior > 0 ? junior : 2,
+    junior: Number.isFinite(junior) && junior > 0 ? junior : 4,
   };
 }
 
@@ -279,7 +308,7 @@ async function postCheckin(request, env) {
   // 2. Device allowance, budgeted separately for adults and juniors so a racing
   //    parent can do their kids and themselves from the one phone.
   const prior = await env.DB.prepare(
-    `SELECT p.id, p.entrant, p.guardian, p.is_junior AS isJunior, c.created_at
+    `SELECT p.id, p.entrant, p.crn, p.guardian, p.is_junior AS isJunior, c.created_at
        FROM checkins c JOIN people p ON p.id = c.person_id
       WHERE c.event_id = ? AND c.device_id = ? AND c.source = 'self'
       ORDER BY c.created_at`
@@ -290,20 +319,27 @@ async function postCheckin(request, env) {
   const sameKind = prior.results.filter((r) => !!r.isJunior === isJunior);
   const allowance = isJunior ? limits.junior : limits.adult;
 
-  // The first junior checked in on a device binds that device to their
-  // guardian. Every later junior must share a guardian with them, so one parent
-  // cannot check in another family's children.
-  if (isJunior && sameKind.length) {
-    const mismatched = sameKind.filter((r) => !sameGuardian(person.guardian, r.guardian));
-    if (mismatched.length) {
-      // Guardian names are deliberately NOT returned: anyone holding a phone
-      // could otherwise probe the roster for any child's guardian.
+  // A device is bound to ONE person by its first check-in: an adult binds it to
+  // themselves, a junior binds it to their guardian. Everything after that must
+  // resolve to the same person. This covers all three orderings - driver then
+  // minor, minor then minor, and minor then driver.
+  if (prior.results.length) {
+    const established = [];
+    for (const r of prior.results) {
+      for (const k of identityKeys(r)) if (established.indexOf(k) === -1) established.push(k);
+    }
+    if (!keysOverlap(identityKeys(person), established)) {
+      // Names of drivers checked in on THIS device are fine to return - whoever
+      // holds the phone checked them in. Guardian names are never returned.
+      const first = prior.results[0];
       return json({
         status: 'already',
-        reason: 'guardian',
+        reason: 'identity',
         person: personPayload,
-        previous: mismatched.map((r) => ({
+        boundTo: first.isJunior ? 'guardian' : 'driver',
+        previous: prior.results.map((r) => ({
           entrant: r.entrant,
+          isJunior: !!r.isJunior,
           checkedInAt: r.created_at,
         })),
       }, request, env);
