@@ -308,6 +308,22 @@ console.log('\n=== 8b. a device is bound to ONE person (driver or guardian) ==='
   x = await A.go('Kid D2', 'phone-D');
   check('sibling listing only one of them still matches', x.body.status === 'ok', x.body);
 
+  console.log('  -- the backstop cap still works when configured --');
+  {
+    // The default junior cap (20) is far above any real family, so drive the
+    // mechanism through its env override instead of building a 21-child family.
+    const C = await mk('Cap check');
+    env.DEVICE_LIMIT_JUNIOR = '1';
+    let y = await C.go('Kid A1', 'phone-cap');
+    check('first child ok under a cap of 1', y.body.status === 'ok', y.body);
+    y = await C.go('Kid A2', 'phone-cap');
+    check('same-guardian sibling blocked by the cap', y.body.status === 'already' && y.body.reason === 'device', y.body);
+    delete env.DEVICE_LIMIT_JUNIOR;
+    y = await C.go('Kid A2', 'phone-cap');
+    check('...and allowed again once the cap is lifted', y.body.status === 'ok', y.body);
+    await call('DELETE', '/api/admin/events/' + C.ev, { key: ADMIN_KEY });
+  }
+
   await call('DELETE', '/api/admin/events/' + A.ev, { key: ADMIN_KEY });
   await call('DELETE', '/api/admin/events/' + B.ev, { key: ADMIN_KEY });
 }

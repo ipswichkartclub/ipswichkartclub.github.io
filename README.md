@@ -88,12 +88,12 @@ The CSV export carries **Checked in by**, **Briefing acknowledged** and
 ### Device limits
 
 Check-in is de-duplicated per device (a random token in `localStorage`), with
-separate budgets so a racing parent can do their kids *and* themselves:
+separate budgets for adults and juniors:
 
 | | Per device |
 |---|---|
 | Adults (`Not Applicable`) | 1 |
-| Juniors (guardian named) | 4 |
+| Juniors (guardian named) | 20 |
 
 Change the numbers with the `DEVICE_LIMIT_ADULT` / `DEVICE_LIMIT_JUNIOR` vars in
 `wrangler.toml`. These are only a backstop — see **One device, one person**
@@ -129,11 +129,11 @@ Anyone rejected is told to **see an official at the driver briefing**, who can
 check them in manually from the admin page. No guardian names are ever shown on
 the rejection screen or returned by the API.
 
-There is still a backstop cap per device (1 adult, 4 juniors) purely to bound
-abuse, but the identity rule is the real control. The junior cap has to clear
-the largest family actually racing — the 2026 IROC list contains two guardians
-with **three** children entered, so a cap of 2 would have turned real families
-away.
+There is still a backstop cap per device (1 adult, 20 juniors) purely to bound
+runaway abuse, but the identity rule is the real control — every junior counted
+against that cap has already been proved to share a guardian. The cap sits well
+above any real family so it never turns anyone away: the 2026 IROC list alone
+contains two guardians with **three** children entered.
 
 Independently of the device rule, **a person can never be checked in twice** —
 tapping the same driver from any device shows the already-checked-in page. That
@@ -174,7 +174,8 @@ page and the entrant contact details.
 
 ### 2. Front end (GitHub Pages)
 
-Edit `docs/assets/config.js` and set `apiBase` to the Worker URL printed above.
+Edit `docs/assets/config.js` and set `PRODUCTION_API` to the Worker URL printed
+above.
 
 ```bash
 git init

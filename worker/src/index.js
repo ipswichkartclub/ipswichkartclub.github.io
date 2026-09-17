@@ -128,17 +128,18 @@ function keysOverlap(a, b) {
 }
 
 /**
- * Backstop caps per device. The identity rule below is the real control, so
- * these only exist to bound abuse: the junior cap must be high enough to cover
- * the largest family actually racing (there are 3-child families in the 2026
- * IROC list). Override with DEVICE_LIMIT_ADULT / DEVICE_LIMIT_JUNIOR.
+ * Backstop caps per device. The identity rule below is the real control - every
+ * junior checked in here has already been proved to share a guardian - so these
+ * only exist to bound runaway abuse, and the junior cap is deliberately far
+ * above any real family size. Override with DEVICE_LIMIT_ADULT /
+ * DEVICE_LIMIT_JUNIOR.
  */
 function deviceLimits(env) {
   const adult = parseInt(env.DEVICE_LIMIT_ADULT, 10);
   const junior = parseInt(env.DEVICE_LIMIT_JUNIOR, 10);
   return {
     adult: Number.isFinite(adult) && adult > 0 ? adult : 1,
-    junior: Number.isFinite(junior) && junior > 0 ? junior : 4,
+    junior: Number.isFinite(junior) && junior > 0 ? junior : 20,
   };
 }
 
