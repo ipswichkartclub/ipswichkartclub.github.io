@@ -12,7 +12,7 @@ database_id = "9b44c409-c7dd-42fa-b22e-0ebc54cd8470"
 [vars]
 # Only the published site may call this API from a browser. Add more origins
 # comma-separated if you ever move to a custom domain.
-ALLOWED_ORIGINS = "https://checkin.ipswichkartclub.org.au,https://hbwoody.github.io"
+ALLOWED_ORIGINS = "https://ipswichkartclub.github.io,https://checkin.ipswichkartclub.org.au"
 
 # ADMIN_KEY is a secret, not a var. Set it with:
 #   npx wrangler secret put ADMIN_KEY
