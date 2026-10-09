@@ -854,6 +854,7 @@
     $('updFile').value = '';
     $('updReview').classList.add('hidden');
     $('updNoChange').classList.add('hidden');
+    $('updCompared').classList.add('hidden');
     $('updError').classList.add('hidden');
     $('dfResult').classList.add('hidden');
   }
@@ -862,6 +863,7 @@
     var file = this.files && this.files[0];
     $('updError').classList.add('hidden');
     $('updNoChange').classList.add('hidden');
+    $('updCompared').classList.add('hidden');
     $('updReview').classList.add('hidden');
     $('dfResult').classList.add('hidden');
     state.diff = null;
@@ -870,11 +872,33 @@
     parseWorkbook(file)
       .then(function (rows) {
         var d = buildDiff(rows);
+
+        // Always say what was actually compared. A bare "no differences" gives
+        // no way to tell a genuine match from the wrong file or a stale roster.
+        var filePeople = {};
+        rows.forEach(function (r) {
+          var k = String(r.crn || '').trim()
+            || String(r.entrant || '').trim().toLowerCase().replace(/\s+/g, ' ');
+          if (k) filePeople[k] = true;
+        });
+        var fileDrivers = Object.keys(filePeople).length;
+        var rosterDrivers = state.detail.people.length;
+        var rosterEntries = state.detail.people.reduce(function (n, p) {
+          return n + (p.entries || []).length;
+        }, 0);
+        var summary = esc(file.name) + ' holds <b>' + fileDrivers + ' drivers / '
+          + rows.length + ' entries</b>; this meeting currently holds <b>'
+          + rosterDrivers + ' drivers / ' + rosterEntries + ' entries</b>.';
+
         if (!d.changes.length) {
           $('dfSame').textContent = d.same;
+          $('updNoChange').innerHTML = '<b>No differences.</b> ' + summary
+            + '<br>Every driver and every detail in the file already matches the entry list.';
           $('updNoChange').classList.remove('hidden');
           return;
         }
+        $('updCompared').innerHTML = summary;
+        $('updCompared').classList.remove('hidden');
         // removals are NOT pre-selected: they are the destructive ones
         d.changes.forEach(function (c) {
           c.selected = (c.type !== 'removePerson' && c.type !== 'removeEntry');
@@ -959,6 +983,7 @@
         state.diff = null;
         $('updFile').value = '';
         $('updReview').classList.add('hidden');
+        $('updCompared').classList.add('hidden');
         btn.disabled = false;
         btn.textContent = 'Apply selected changes';
         state.sig = null;              // force the lists below to redraw
