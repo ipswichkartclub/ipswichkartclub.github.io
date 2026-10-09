@@ -61,10 +61,20 @@
     window.scrollTo(0, 0);
   }
 
+  /**
+   * Build the public check-in link for an event.
+   *
+   * GitHub Pages serves this page at /admin.html AND at the extensionless
+   * /admin, so the admin path has to be stripped in whichever form the browser
+   * is actually showing - getting that wrong produced /admin/index.html?e=...,
+   * which 404s. The link points at the directory rather than index.html: it is
+   * shorter, so the QR code carries fewer modules and scans more easily.
+   */
   function checkinUrl(eventId) {
-    var base = location.origin + location.pathname.replace(/admin\.html?$/i, '');
-    if (!/\/$/.test(base)) base += '/';
-    return base + 'index.html?e=' + encodeURIComponent(eventId);
+    var path = location.pathname.replace(/\/admin(?:\.html?)?\/?$/i, '/');
+    if (!/\/$/.test(path)) path = path.replace(/[^/]*$/, '');   // any other file
+    if (!path) path = '/';
+    return location.origin + path + '?e=' + encodeURIComponent(eventId);
   }
 
   /* ---------------------------------------------------------------- api */

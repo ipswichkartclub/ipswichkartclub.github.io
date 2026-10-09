@@ -10,7 +10,7 @@
     "db:init": "wrangler d1 execute ikc-checkin --remote --file=./schema.sql",
     "db:init:local": "wrangler d1 execute ikc-checkin --local --file=./schema.sql",
     "secret": "wrangler secret put ADMIN_KEY",
-    "test": "node test.mjs && node test-diff.mjs"
+    "test": "node test.mjs && node test-diff.mjs && node test-url.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
