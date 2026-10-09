@@ -253,7 +253,7 @@ button.block { display: block; width: 100%; }
   color: var(--ink-soft);
   vertical-align: middle;
 }
-.tag.junior { background: #e0e7ff; color: #3730a3; }
+.tag.minor { background: #e0e7ff; color: #3730a3; }
 .tag.open { background: var(--ok-bg); color: #14532d; }
 .tag.closed { background: #e2e8f0; color: var(--ink-soft); }
 .tag.admin { background: var(--warn-bg); color: #78350f; }

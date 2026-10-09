@@ -3,8 +3,8 @@
 Kart race meeting driver-briefing check-in. Drivers scan a QR code, pick their
 class, find themselves by kart number or name, and tap once. Anyone already
 checked in drops off the list, so it only ever shows who is still outstanding —
-and the class dropdown counts down as the briefing fills up. Officials get a
-live list of everyone who has **not** checked in.
+and the class dropdown counts down as the briefing fills up. The Chief Steward
+gets a live list of everyone who has **not** checked in.
 
 - **Front end** — static HTML/JS, hosted on GitHub Pages (`/docs`)
 - **Back end** — one Cloudflare Worker + a D1 (SQLite) database
@@ -52,14 +52,14 @@ every class that person is entered in.
 In the sample 2026 IROC list that is 247 entries → 240 people, with 7 drivers
 doubling up (for example KA3 Senior #57 and X30 #1 are the same person).
 
-### Junior vs adult
+### Minor driver vs adult
 
 The **Guardian** column decides this:
 
 | Guardian value | Treated as |
 |---|---|
 | `Not Applicable` | Adult |
-| anything else | Junior (has a guardian) |
+| anything else | Minor driver (has a guardian) |
 
 ### Briefing acknowledgement
 
@@ -78,9 +78,10 @@ record rather than decoration:
 - **It is per driver, not per phone.** A guardian checking in two children ticks
   it once for each.
 
-When an official checks someone in manually, they get a confirmation prompt and
-the record is stored as acknowledged with the wording *"Acknowledgement confirmed
-by an official"* and a `source` of `admin`, so the two cases stay distinguishable.
+When the Chief Steward checks someone in manually, they get a confirmation prompt
+and the record is stored as acknowledged with the wording *"Acknowledgement
+confirmed by the Chief Steward"* and a `source` of `admin`, so the two cases stay
+distinguishable.
 
 The CSV export carries **Checked in by**, **Briefing acknowledged** and
 **Acknowledgement wording** columns.
@@ -88,14 +89,14 @@ The CSV export carries **Checked in by**, **Briefing acknowledged** and
 ### Device limits
 
 Check-in is de-duplicated per device (a random token in `localStorage`), with
-separate budgets for adults and juniors:
+separate budgets for adults and minor drivers:
 
 | | Per device |
 |---|---|
 | Adults (`Not Applicable`) | 1 |
-| Juniors (guardian named) | 20 |
+| Minor drivers (guardian named) | 20 |
 
-Change the numbers with the `DEVICE_LIMIT_ADULT` / `DEVICE_LIMIT_JUNIOR` vars in
+Change the numbers with the `DEVICE_LIMIT_ADULT` / `DEVICE_LIMIT_MINOR` vars in
 `wrangler.toml`. These are only a backstop — see **One device, one person**
 below for the rule that actually governs who may check in whom.
 
@@ -105,7 +106,7 @@ The first check-in on a device **binds that device to a single person**, and
 everything checked in afterwards must resolve to that same person:
 
 - an **adult** binds the device to *themselves*
-- a **junior** binds it to *their guardian*
+- a **minor driver** binds it to *their guardian*
 
 That covers all three orderings:
 
@@ -125,14 +126,14 @@ in common, which handles the shapes that actually appear in an entry list:
 siblings listing the same two parents in a different order, or one child listing
 both parents while another lists only one.
 
-Anyone rejected is told to **see an official at the driver briefing**, who can
-check them in manually from the admin page. No guardian names are ever shown on
-the rejection screen or returned by the API.
+Anyone rejected is told to **see the Chief Steward at the driver briefing**, who
+can check them in manually from the admin page. No guardian names are ever shown
+on the rejection screen or returned by the API.
 
-There is still a backstop cap per device (1 adult, 20 juniors) purely to bound
-runaway abuse, but the identity rule is the real control — every junior counted
-against that cap has already been proved to share a guardian. The cap sits well
-above any real family so it never turns anyone away: the 2026 IROC list alone
+There is still a backstop cap per device (1 adult, 20 minor drivers) purely to
+bound runaway abuse, but the identity rule is the real control — every minor
+driver counted against that cap has already been proved to share a guardian. The
+cap sits well above any real family so it never turns anyone away: the 2026 IROC list alone
 contains two guardians with **three** children entered.
 
 Independently of the device rule, **a person can never be checked in twice** —
@@ -142,8 +143,8 @@ is what keeps the register correct.
 The client IP is recorded against each check-in and shown in the admin view, but
 it is **not** used to block anyone: at a track most phones share the club WiFi or
 carrier CGNAT address, so IP blocking would lock out everyone after the first
-person. If someone genuinely can't check in from their phone, an official checks
-them in manually from the admin page.
+person. If someone genuinely can't check in from their phone, the Chief Steward
+checks them in manually from the admin page.
 
 ## Deploy
 
@@ -211,7 +212,7 @@ ALLOWED_ORIGINS = "https://<you>.github.io"
    Switching tabs also pulls fresh data. Untick *Auto-refresh* to stop polling;
    the choice is remembered.
 5. **Check in** next to a name marks someone off manually (for a flat phone, or
-   somebody who hit the device limit). It is tagged *by official*.
+   somebody the identity rule turned away). It is tagged *by Chief Steward*.
 6. **Close check-in** when the briefing ends; the public page then refuses
    further check-ins.
 
@@ -224,7 +225,7 @@ dumps whichever tab you are on.
 ### Spreadsheet columns
 
 Required: **Kart No**, **Entrant**, **Class**.
-Used when present: **Guardian** (junior/adult), **CRN** (person identity),
+Used when present: **Guardian** (minor driver/adult), **CRN** (person identity),
 Transponder Number, Kart, Engine, Email, Mobile, Member Type, Home Club.
 
 Header matching is case- and punctuation-insensitive, and the header row is
@@ -266,7 +267,7 @@ minors.
 
 - Real entry lists are git-ignored (`*.xlsx`, `*.csv`) — never commit one.
 - The check-in page is unauthenticated, so it is served the bare minimum: kart
-  number, entrant name, class and a junior flag. **Guardian names, CRNs, emails
+  number, entrant name, class and a minor-driver flag. **Guardian names, CRNs, emails
   and phone numbers are never sent to it**, in any response, including error
   responses — otherwise anyone holding a phone could pick a child off the list
   and learn their guardian's name from the rejection message. The guardian

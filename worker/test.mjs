@@ -21,11 +21,11 @@ function makeRows() {
   ];
   const rows = [];
   let n = 0;
-  let jn = 0;   // juniors are grouped into families of 3 sharing a guardian
-  for (const [cls, count, junior] of CLASSES) {
+  let jn = 0;   // minor drivers are grouped into families of 3 sharing a guardian
+  for (const [cls, count, minor] of CLASSES) {
     for (let i = 0; i < count; i++) {
       n++;
-      const fam = junior ? Math.ceil(++jn / 3) : 0;
+      const fam = minor ? Math.ceil(++jn / 3) : 0;
       rows.push({
         kartNo: String((i * 7) % 99 + 1),
         entrant: 'Driver ' + n,
@@ -33,10 +33,10 @@ function makeRows() {
         transponder: String(1000000 + n),
         kart: 'Kart Republic-Mini (' + n + ')',
         engine: 'Vortex-MinRok (' + n + ')',
-        guardian: junior ? 'Guardian ' + fam + ' (2026' + fam + ')' : 'Not Applicable',
+        guardian: minor ? 'Guardian ' + fam + ' (2026' + fam + ')' : 'Not Applicable',
         email: 'driver' + n + '@example.invalid',
         mobile: '04' + String(10000000 + n),
-        memberType: junior ? 'Junior - C' : 'Senior - B',
+        memberType: minor ? 'Junior - C' : 'Senior - B',
         homeClub: 'Ipswich Kart Club Inc',
         crn: 'CRN' + String(100000 + n),
       });
@@ -138,11 +138,11 @@ check('doubled-up driver has 2 entries', brodieEntries.length === 2, brodieEntri
 check('...sharing one personId', brodieEntries[0].personId === brodieEntries[1].personId);
 const BRODIE = brodieEntries[0].personId;
 
-// junior flag
+// minor-driver flag
 const charlotte = roster.entries.find(e => e.class === 'Cadet 9');
-check('guardian driver flagged junior', charlotte.isJunior === true);
+check('guardian driver flagged as a minor driver', charlotte.isMinor === true);
 const adult = roster.entries.find(e => e.class === 'DD2');
-check('"Not Applicable" guardian is not junior', adult.isJunior === false);
+check('"Not Applicable" guardian is not a minor driver', adult.isMinor === false);
 const ADAM = adult.personId;
 
 console.log('\n=== 4. one check-in satisfies every class ===');
@@ -175,18 +175,18 @@ check('already / person', r.body.status === 'already' && r.body.reason === 'pers
 console.log('\n=== 6. a device is bound to the first adult who uses it ===');
 r = await call('POST', '/api/checkin', { body: { eventId: EV, personId: ADAM, acknowledged: true, ackText: 'I have read the briefing notes', deviceId: 'dev-adult' } });
 check('first adult ok', r.body.status === 'ok', r.body);
-const otherAdult = roster.entries.find(e => !e.isJunior && e.personId !== ADAM && e.personId !== BRODIE);
+const otherAdult = roster.entries.find(e => !e.isMinor && e.personId !== ADAM && e.personId !== BRODIE);
 r = await call('POST', '/api/checkin', { body: { eventId: EV, personId: otherAdult.personId, acknowledged: true, ackText: 'I have read the briefing notes', deviceId: 'dev-adult' } });
 check('a different adult on the same device is rejected', r.body.status === 'already' && r.body.reason === 'identity', r.body);
 check('...reported as bound to a driver', r.body.boundTo === 'driver', r.body.boundTo);
 check('...naming who used the device', r.body.previous[0].entrant === adult.entrant, r.body.previous);
 
 console.log('\n=== 7. a guardian may check in all of their own children ===');
-const juniors = roster.entries.filter(e => e.isJunior);
-// group juniors into families by guardian (only the admin view exposes it)
+const minors = roster.entries.filter(e => e.isMinor);
+// group minor drivers into families by guardian (only the admin view exposes it)
 const adminPeople = (await call('GET', '/api/admin/events/' + EV, { key: ADMIN_KEY })).body.people;
 const families = new Map();
-adminPeople.filter(p => p.isJunior).forEach(p => {
+adminPeople.filter(p => p.isMinor).forEach(p => {
   if (!families.has(p.guardian)) families.set(p.guardian, []);
   families.get(p.guardian).push(p.personId);
 });
@@ -210,7 +210,7 @@ r = await checkIn(fam2[0], 'dev-guardian2');
 check('kid 1 ok', r.body.status === 'ok', r.body);
 r = await checkIn(fam2[1], 'dev-guardian2');
 check('kid 2 ok', r.body.status === 'ok', r.body);
-const parentAdult = roster.entries.find(e => !e.isJunior && ![ADAM, BRODIE, otherAdult.personId].includes(e.personId));
+const parentAdult = roster.entries.find(e => !e.isMinor && ![ADAM, BRODIE, otherAdult.personId].includes(e.personId));
 r = await checkIn(parentAdult.personId, 'dev-guardian2');
 check('an adult who is NOT their guardian is rejected', r.body.status === 'already' && r.body.reason === 'identity', r.body);
 check('...reported as bound to a guardian', r.body.boundTo === 'guardian', r.body.boundTo);
@@ -257,7 +257,7 @@ console.log('\n=== 8b. a device is bound to ONE person (driver or guardian) ==='
 
   console.log('  -- minor, then minor --');
   x = await A.go('Kid A1', 'phone-A');
-  check('first junior checks in', x.body.status === 'ok', x.body);
+  check('first minor driver checks in', x.body.status === 'ok', x.body);
   x = await A.go('Kid A2', 'phone-A');
   check('sibling with the same guardian allowed', x.body.status === 'ok', x.body);
   x = await A.go('Kid A3', 'phone-A');
@@ -288,7 +288,7 @@ console.log('\n=== 8b. a device is bound to ONE person (driver or guardian) ==='
 
   console.log('  -- minor, then driver --');
   x = await A.go('Kid C1', 'phone-C');
-  check('junior checks in', x.body.status === 'ok', x.body);
+  check('minor driver checks in', x.body.status === 'ok', x.body);
   x = await A.go('Kid C2', 'phone-C');
   check('sibling in reverse parent order matches', x.body.status === 'ok', x.body);
   x = await A.go('Ann Other', 'phone-C');
@@ -310,15 +310,15 @@ console.log('\n=== 8b. a device is bound to ONE person (driver or guardian) ==='
 
   console.log('  -- the backstop cap still works when configured --');
   {
-    // The default junior cap (20) is far above any real family, so drive the
+    // The default minor-driver cap (20) is far above any real family, so drive the
     // mechanism through its env override instead of building a 21-child family.
     const C = await mk('Cap check');
-    env.DEVICE_LIMIT_JUNIOR = '1';
+    env.DEVICE_LIMIT_MINOR = '1';
     let y = await C.go('Kid A1', 'phone-cap');
     check('first child ok under a cap of 1', y.body.status === 'ok', y.body);
     y = await C.go('Kid A2', 'phone-cap');
     check('same-guardian sibling blocked by the cap', y.body.status === 'already' && y.body.reason === 'device', y.body);
-    delete env.DEVICE_LIMIT_JUNIOR;
+    delete env.DEVICE_LIMIT_MINOR;
     y = await C.go('Kid A2', 'phone-cap');
     check('...and allowed again once the cap is lifted', y.body.status === 'ok', y.body);
     await call('DELETE', '/api/admin/events/' + C.ev, { key: ADMIN_KEY });
@@ -353,10 +353,10 @@ console.log('\n=== 8c. chunked upload matches a single-shot upload ===');
   const cdet = (await call('GET', '/api/admin/events/' + CEV, { key: ADMIN_KEY })).body;
   const multi = cdet.people.filter(p => p.entries.length > 1);
   check('7 drivers still collapsed across chunks', multi.length === 7, multi.length);
-  check('junior flags survived chunking',
-    cdet.people.filter(p => p.isJunior).length
-      === (await call('GET', '/api/admin/events/' + EV, { key: ADMIN_KEY })).body.people.filter(p => p.isJunior).length,
-    cdet.people.filter(p => p.isJunior).length);
+  check('minor-driver flags survived chunking',
+    cdet.people.filter(p => p.isMinor).length
+      === (await call('GET', '/api/admin/events/' + EV, { key: ADMIN_KEY })).body.people.filter(p => p.isMinor).length,
+    cdet.people.filter(p => p.isMinor).length);
   check('no orphan entries', cdet.people.reduce((n, p) => n + p.entries.length, 0) === 254,
     cdet.people.reduce((n, p) => n + p.entries.length, 0));
 
@@ -436,15 +436,15 @@ const ackRow = (await call('GET', '/api/admin/events/' + EV, { key: ADMIN_KEY })
 check('acknowledgement stored', ackRow.acknowledged === true, ackRow);
 check('exact wording stored', ackRow.ackText === 'Read the notes', ackRow.ackText);
 
-console.log('\n=== 13c. official check-in records an acknowledgement too ===');
+console.log('\n=== 13c. Chief Steward check-in records an acknowledgement too ===');
 const admTarget = (await call('GET', '/api/admin/events/' + EV, { key: ADMIN_KEY }))
   .body.people.filter(p => !p.checkedIn)[0];
 await call('POST', `/api/admin/events/${EV}/checkin`, { key: ADMIN_KEY, body: { personId: admTarget.personId } });
 const admRow = (await call('GET', '/api/admin/events/' + EV, { key: ADMIN_KEY }))
   .body.people.find(p => p.personId === admTarget.personId);
 check('admin check-in acknowledged', admRow.acknowledged === true, admRow);
-check('...and marked as by an official', admRow.checkinSource === 'admin', admRow.checkinSource);
-check('...with wording naming the official', /official/i.test(admRow.ackText || ''), admRow.ackText);
+check('...and marked as done by the Chief Steward', admRow.checkinSource === 'admin', admRow.checkinSource);
+check('...with wording naming the Chief Steward', /chief steward/i.test(admRow.ackText || ''), admRow.ackText);
 r = await call('POST', '/api/admin/events', { key: ADMIN_KEY, body: { rows: [] } });
 check('event with no name rejected', r.status === 400, r.body);
 // a bare event IS valid now - the admin page creates it, then uploads chunks

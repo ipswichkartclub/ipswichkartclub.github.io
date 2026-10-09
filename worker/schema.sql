@@ -22,7 +22,7 @@ CREATE TABLE people (
   person_key  TEXT NOT NULL,             -- CRN when present, else normalised name
   entrant     TEXT NOT NULL,
   guardian    TEXT,
-  is_junior   INTEGER NOT NULL DEFAULT 0,-- 1 when guardian is not "Not Applicable"
+  is_minor    INTEGER NOT NULL DEFAULT 0,-- 1 when guardian is not "Not Applicable"
   crn         TEXT,
   email       TEXT,
   mobile      TEXT,

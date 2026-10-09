@@ -242,9 +242,9 @@
       if (!crn) missingCrn++;
       if (!String(r.kartNo || '').trim()) missingKart++;
       var key = crn || (r.entrant || '').trim().toLowerCase().replace(/\s+/g, ' ');
-      var junior = (r.guardian || '').trim() !== '' && (r.guardian || '').trim().toLowerCase() !== 'not applicable';
-      if (!people.has(key)) people.set(key, { entrant: r.entrant, junior: junior, entries: 0 });
-      else if (junior) people.get(key).junior = true;
+      var minor = (r.guardian || '').trim() !== '' && (r.guardian || '').trim().toLowerCase() !== 'not applicable';
+      if (!people.has(key)) people.set(key, { entrant: r.entrant, minor: minor, entries: 0 });
+      else if (minor) people.get(key).minor = true;
       people.get(key).entries++;
       classes.set(r.class, (classes.get(r.class) || 0) + 1);
     });
@@ -269,7 +269,7 @@
       people: people.size,
       entries: rows.length,
       classes: [...classes.entries()].sort(function (a, b) { return a[0].localeCompare(b[0]); }),
-      juniors: [...people.values()].filter(function (p) { return p.junior; }).length,
+      minors: [...people.values()].filter(function (p) { return p.minor; }).length,
       warnings: warnings,
     };
   }
@@ -296,7 +296,7 @@
         $('pvPeople').textContent = sum.people;
         $('pvEntries').textContent = sum.entries;
         $('pvClasses').textContent = sum.classes.length;
-        $('pvJuniors').textContent = sum.juniors;
+        $('pvMinors').textContent = sum.minors;
 
         $('pvTable').innerHTML =
           '<tr><th>Class</th><th style="text-align:right">Entries</th></tr>' +
@@ -500,7 +500,7 @@
       return '<tr>' +
         '<td>' +
           '<div class="name">' + esc(p.entrant) +
-            (p.isJunior ? ' <span class="tag junior">junior</span>' : '') +
+            (p.isMinor ? ' <span class="tag minor">minor driver</span>' : '') +
           '</div>' +
           '<div class="entries">' + entriesCell(p) + '</div>' +
         '</td>' +
@@ -508,7 +508,7 @@
           ? '<td class="contact">' + esc(p.mobile || '') +
               (p.email ? '<br>' + esc(p.email) : '') + '</td>'
           : '<td class="contact">' + esc(formatTime(p.checkedInAt)) +
-              (p.checkinSource === 'admin' ? ' <span class="tag admin">by official</span>' : '') +
+              (p.checkinSource === 'admin' ? ' <span class="tag admin">by Chief Steward</span>' : '') +
               (p.acknowledged ? '' : ' <span class="tag admin">not acknowledged</span>') + '</td>') +
         '<td class="actions no-print">' +
           (state.tab === 'missing'
@@ -533,7 +533,7 @@
       p.entries.forEach(function (e) {
         if (!byClass.has(e.class)) byClass.set(e.class, []);
         byClass.get(e.class).push({
-          kartNo: e.kartNo, entrant: p.entrant, checkedIn: p.checkedIn, isJunior: p.isJunior,
+          kartNo: e.kartNo, entrant: p.entrant, checkedIn: p.checkedIn, isMinor: p.isMinor,
         });
       });
     });
@@ -691,7 +691,7 @@
       var who = state.detail.people.filter(function (p) { return p.personId === pid; })[0];
       if (!confirm('Check in ' + (who ? who.entrant : 'this driver') + '?\n\n'
         + 'Only do this once they have confirmed they have read the driver '
-        + 'briefing notes. It will be recorded as acknowledged by an official.')) return;
+        + 'briefing notes. It will be recorded as acknowledged by the Chief Steward.')) return;
       inBtn.disabled = true;
       api('/api/admin/events/' + encodeURIComponent(id) + '/checkin', {
         method: 'POST',
@@ -820,7 +820,7 @@
         p.email || '',
         p.checkedIn ? 'Yes' : 'No',
         p.checkedInAt ? new Date(p.checkedInAt).toLocaleString('en-AU') : '',
-        p.checkedIn ? (p.checkinSource === 'admin' ? 'Official' : 'Driver') : '',
+        p.checkedIn ? (p.checkinSource === 'admin' ? 'Chief Steward' : 'Driver') : '',
         p.checkedIn ? (p.acknowledged ? 'Yes' : 'No') : '',
         p.ackText || '',
       ]);

@@ -292,7 +292,7 @@
     } else if (res.status === 'already' && res.reason === 'identity') {
       box.classList.add('warn');
       $('resultIcon').innerHTML = '&#9888;';
-      $('resultTitle').textContent = 'Please see an official';
+      $('resultTitle').textContent = 'Please see the Chief Steward';
       $('resultWho').textContent = res.person.entrant;
 
       var prev = res.previous || [];
@@ -302,11 +302,11 @@
         : (names[0] || 'another driver');
 
       var why;
-      if (res.boundTo === 'driver' && res.person.isJunior) {
+      if (res.boundTo === 'driver' && res.person.isMinor) {
         // checked in as a driver first, now trying to check in a minor
         why = 'This phone was used to check in <b>' + esc(nameList) + '</b> as a driver, '
           + 'and that name is not listed as ' + esc(res.person.entrant) + '&rsquo;s guardian.';
-      } else if (res.boundTo === 'guardian' && !res.person.isJunior) {
+      } else if (res.boundTo === 'guardian' && !res.person.isMinor) {
         // checked in minors first, now trying to check in as a driver
         why = 'This phone was used to check in <b>' + esc(nameList) + '</b> under their guardian, '
           + 'and ' + esc(res.person.entrant) + ' is not listed as that guardian.';
@@ -317,7 +317,7 @@
       }
 
       $('resultDetail').innerHTML = why
-        + '<br><br>Please see an official at the driver briefing and they will check '
+        + '<br><br>Please see the Chief Steward at the driver briefing and they will check '
         + esc(res.person.entrant) + ' in.';
 
     } else if (res.status === 'already' && res.reason === 'device') {
@@ -328,7 +328,7 @@
       $('resultWho').textContent = names.join(' and ');
       $('resultDetail').innerHTML = 'This phone has already been used to check in '
         + (names.length === 1 ? 'a driver' : names.length + ' drivers') + '.<br>'
-        + 'If ' + esc(res.person.entrant) + ' still needs to check in, please see an official at the briefing.';
+        + 'If ' + esc(res.person.entrant) + ' still needs to check in, please see the Chief Steward.';
 
     } else if (res.status === 'closed') {
       box.classList.add('warn');

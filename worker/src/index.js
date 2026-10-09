@@ -56,7 +56,7 @@ function normaliseName(s) {
   return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-function isJuniorGuardian(guardian) {
+function hasGuardian(guardian) {
   const g = String(guardian || '').trim();
   return g !== '' && g.toLowerCase() !== 'not applicable';
 }
@@ -112,14 +112,14 @@ function personKeys(person) {
 /**
  * The identity a check-in binds a device to.
  *
- * An adult binds the device to themselves. A junior binds it to their
+ * An adult binds the device to themselves. A minor driver binds it to their
  * guardian. Every later check-in on that device must resolve to the same
  * person, which is what stops someone checking in a child they are not
  * responsible for, in either order.
  */
 function identityKeys(person) {
-  const junior = person.is_junior !== undefined ? person.is_junior : person.isJunior;
-  return junior ? guardianKeys(person.guardian) : personKeys(person);
+  const minor = person.is_minor !== undefined ? person.is_minor : person.isMinor;
+  return minor ? guardianKeys(person.guardian) : personKeys(person);
 }
 
 function keysOverlap(a, b) {
@@ -129,17 +129,17 @@ function keysOverlap(a, b) {
 
 /**
  * Backstop caps per device. The identity rule below is the real control - every
- * junior checked in here has already been proved to share a guardian - so these
- * only exist to bound runaway abuse, and the junior cap is deliberately far
+ * minor driver checked in here has already been proved to share a guardian - so
+ * these only exist to bound runaway abuse, and the cap is deliberately far
  * above any real family size. Override with DEVICE_LIMIT_ADULT /
- * DEVICE_LIMIT_JUNIOR.
+ * DEVICE_LIMIT_MINOR.
  */
 function deviceLimits(env) {
   const adult = parseInt(env.DEVICE_LIMIT_ADULT, 10);
-  const junior = parseInt(env.DEVICE_LIMIT_JUNIOR, 10);
+  const minor = parseInt(env.DEVICE_LIMIT_MINOR, 10);
   return {
     adult: Number.isFinite(adult) && adult > 0 ? adult : 1,
-    junior: Number.isFinite(junior) && junior > 0 ? junior : 20,
+    minor: Number.isFinite(minor) && minor > 0 ? minor : 20,
   };
 }
 
@@ -232,7 +232,7 @@ async function getPublicEvent(eventId, request, env) {
             e.kart_no   AS kartNo,
             e.class     AS class,
             p.entrant   AS entrant,
-            p.is_junior AS isJunior,
+            p.is_minor AS isMinor,
             (c.id IS NOT NULL) AS checkedIn
        FROM entries e
        JOIN people p ON p.id = e.person_id
@@ -247,7 +247,7 @@ async function getPublicEvent(eventId, request, env) {
     kartNo: String(r.kartNo),
     class: r.class,
     entrant: r.entrant,
-    isJunior: !!r.isJunior,
+    isMinor: !!r.isMinor,
     checkedIn: !!r.checkedIn,
   }));
 
@@ -287,7 +287,7 @@ async function postCheckin(request, env) {
 
   // guardian is read for the matching rule below, but never returned to the page
   const person = await env.DB.prepare(
-    'SELECT id, entrant, guardian, is_junior FROM people WHERE id = ? AND event_id = ?'
+    'SELECT id, entrant, guardian, is_minor FROM people WHERE id = ? AND event_id = ?'
   ).bind(personId, eventId).first();
   if (!person) return fail('Driver not found for this event', request, env, 404);
 
@@ -306,22 +306,22 @@ async function postCheckin(request, env) {
     }, request, env);
   }
 
-  // 2. Device allowance, budgeted separately for adults and juniors so a racing
+  // 2. Device allowance, budgeted separately for adults and minor drivers so a racing
   //    parent can do their kids and themselves from the one phone.
   const prior = await env.DB.prepare(
-    `SELECT p.id, p.entrant, p.crn, p.guardian, p.is_junior AS isJunior, c.created_at
+    `SELECT p.id, p.entrant, p.crn, p.guardian, p.is_minor AS isMinor, c.created_at
        FROM checkins c JOIN people p ON p.id = c.person_id
       WHERE c.event_id = ? AND c.device_id = ? AND c.source = 'self'
       ORDER BY c.created_at`
   ).bind(eventId, deviceId).all();
 
   const limits = deviceLimits(env);
-  const isJunior = !!person.is_junior;
-  const sameKind = prior.results.filter((r) => !!r.isJunior === isJunior);
-  const allowance = isJunior ? limits.junior : limits.adult;
+  const isMinor = !!person.is_minor;
+  const sameKind = prior.results.filter((r) => !!r.isMinor === isMinor);
+  const allowance = isMinor ? limits.minor : limits.adult;
 
   // A device is bound to ONE person by its first check-in: an adult binds it to
-  // themselves, a junior binds it to their guardian. Everything after that must
+  // themselves, a minor driver binds it to their guardian. Everything after must
   // resolve to the same person. This covers all three orderings - driver then
   // minor, minor then minor, and minor then driver.
   if (prior.results.length) {
@@ -337,10 +337,10 @@ async function postCheckin(request, env) {
         status: 'already',
         reason: 'identity',
         person: personPayload,
-        boundTo: first.isJunior ? 'guardian' : 'driver',
+        boundTo: first.isMinor ? 'guardian' : 'driver',
         previous: prior.results.map((r) => ({
           entrant: r.entrant,
-          isJunior: !!r.isJunior,
+          isMinor: !!r.isMinor,
           checkedInAt: r.created_at,
         })),
       }, request, env);
@@ -393,7 +393,7 @@ async function postCheckin(request, env) {
  */
 async function describePerson(env, eventId, personId) {
   const person = await env.DB.prepare(
-    'SELECT id, entrant, is_junior AS isJunior FROM people WHERE id = ? AND event_id = ?'
+    'SELECT id, entrant, is_minor AS isMinor FROM people WHERE id = ? AND event_id = ?'
   ).bind(personId, eventId).first();
   const { results } = await env.DB.prepare(
     `SELECT kart_no AS kartNo, class FROM entries
@@ -403,7 +403,7 @@ async function describePerson(env, eventId, personId) {
   return {
     personId: person.id,
     entrant: person.entrant,
-    isJunior: !!person.isJunior,
+    isMinor: !!person.isMinor,
     entries: results.map((r) => ({ kartNo: String(r.kartNo), class: r.class })),
   };
 }
@@ -442,21 +442,21 @@ async function insertRows(eventId, rows, env) {
 
     const crn = String(r.crn || '').trim();
     const key = crn || normaliseName(entrant);
-    const junior = isJuniorGuardian(r.guardian);
+    const minor = hasGuardian(r.guardian);
 
     if (!peopleByKey.has(key)) {
       peopleByKey.set(key, {
         key,
         entrant,
         guardian: String(r.guardian || '').trim(),
-        isJunior: junior,
+        isMinor: minor,
         crn,
         email: String(r.email || '').trim(),
         mobile: String(r.mobile || '').trim(),
         homeClub: String(r.homeClub || '').trim(),
       });
-    } else if (junior) {
-      peopleByKey.get(key).isJunior = true;
+    } else if (minor) {
+      peopleByKey.get(key).isMinor = true;
     }
 
     entryRows.push({
@@ -474,21 +474,21 @@ async function insertRows(eventId, rows, env) {
   if (!peopleByKey.size) return { people: 0, entries: 0 };
 
   const personStmt = env.DB.prepare(
-    `INSERT OR IGNORE INTO people (event_id, person_key, entrant, guardian, is_junior, crn, email, mobile, home_club)
+    `INSERT OR IGNORE INTO people (event_id, person_key, entrant, guardian, is_minor, crn, email, mobile, home_club)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   await chunkedBatch(env.DB, [...peopleByKey.values()].map((p) => personStmt.bind(
-    eventId, p.key, p.entrant, p.guardian, p.isJunior ? 1 : 0, p.crn, p.email, p.mobile, p.homeClub
+    eventId, p.key, p.entrant, p.guardian, p.isMinor ? 1 : 0, p.crn, p.email, p.mobile, p.homeClub
   )));
 
   // A person first seen without a guardian in an earlier chunk must still end
-  // up flagged as a junior if any of their rows names one.
-  const juniorKeys = [...peopleByKey.values()].filter((p) => p.isJunior).map((p) => p.key);
-  if (juniorKeys.length) {
+  // up flagged as a minor driver if any of their rows names one.
+  const minorKeys = [...peopleByKey.values()].filter((p) => p.isMinor).map((p) => p.key);
+  if (minorKeys.length) {
     const upd = env.DB.prepare(
-      'UPDATE people SET is_junior = 1 WHERE event_id = ? AND person_key = ? AND is_junior = 0'
+      'UPDATE people SET is_minor = 1 WHERE event_id = ? AND person_key = ? AND is_minor = 0'
     );
-    await chunkedBatch(env.DB, juniorKeys.map((k) => upd.bind(eventId, k)));
+    await chunkedBatch(env.DB, minorKeys.map((k) => upd.bind(eventId, k)));
   }
 
   // Resolve person ids for just the keys in this chunk.
@@ -571,7 +571,7 @@ async function getEventDetail(eventId, request, env) {
   if (!event) return fail('Event not found', request, env, 404);
 
   const { results: people } = await env.DB.prepare(
-    `SELECT p.id, p.entrant, p.is_junior AS isJunior, p.guardian, p.crn,
+    `SELECT p.id, p.entrant, p.is_minor AS isMinor, p.guardian, p.crn,
             p.email, p.mobile, p.home_club AS homeClub,
             c.created_at AS checkedInAt, c.source AS checkinSource, c.ip AS ip,
             c.acknowledged AS acknowledged, c.ack_text AS ackText
@@ -609,7 +609,7 @@ async function getEventDetail(eventId, request, env) {
     people: people.map((p) => ({
       personId: p.id,
       entrant: p.entrant,
-      isJunior: !!p.isJunior,
+      isMinor: !!p.isMinor,
       guardian: p.guardian,
       crn: p.crn,
       email: p.email,
@@ -668,9 +668,9 @@ async function adminCheckin(eventId, request, env) {
   ).bind(personId, eventId).first();
   if (!person) return fail('Driver not found for this event', request, env, 404);
 
-  // An official checking someone in is vouching that the driver acknowledged
+  // The Chief Steward checking someone in is vouching that the driver acknowledged
   // the briefing notes; the 'admin' source keeps the two cases distinguishable.
-  const ackText = String(body.ackText || 'Acknowledgement confirmed by an official').slice(0, 500);
+  const ackText = String(body.ackText || 'Acknowledgement confirmed by the Chief Steward').slice(0, 500);
   const at = nowIso();
   await env.DB.prepare(
     `INSERT OR IGNORE INTO checkins (event_id, person_id, device_id, ip, user_agent, source, acknowledged, ack_text, created_at)
