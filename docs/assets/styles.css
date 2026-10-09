@@ -403,6 +403,71 @@ table.people .contact { font-size: 13px; color: var(--ink-soft); }
 .class-block li .k { font-weight: 700; min-width: 34px; }
 .class-block li.done { color: var(--ink-faint); }
 
+/* ------------------------------------------------- entry list update diff */
+
+.diff-group { margin-bottom: 18px; }
+.diff-group h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+}
+.diff-group h4 .n {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  background: #e2e8f0;
+  color: var(--ink-soft);
+  border-radius: 99px;
+  padding: 1px 8px;
+  font-size: 12px;
+}
+
+.diff-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  background: #fff;
+}
+.diff-row:hover { background: #f8fafc; }
+.diff-row.good { border-left-color: var(--ok); }
+.diff-row.bad  { border-left-color: var(--accent); }
+.diff-row:not(.good):not(.bad) { border-left-color: var(--ink-faint); }
+.diff-row input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.diff-body { flex: 1; min-width: 0; display: block; }
+.diff-name { display: block; font-weight: 600; font-size: 15px; }
+.diff-detail { display: block; font-size: 13px; color: var(--ink-soft); margin-top: 1px; }
+
+.diff-fields { display: block; margin-top: 6px; }
+.diff-field {
+  display: block;
+  font-size: 13px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+.diff-field b { font-weight: 600; color: var(--ink-soft); margin-right: 4px; }
+.diff-field s { color: var(--ink-faint); text-decoration-thickness: 1px; }
+.diff-field i { font-style: normal; font-weight: 600; color: var(--ok); }
+
 .qr-panel { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
 .qr-box { background: #fff; padding: 12px; border: 1px solid var(--line); border-radius: 10px; line-height: 0; }
 .qr-box img, .qr-box canvas { display: block; width: 200px; height: 200px; }

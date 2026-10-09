@@ -114,6 +114,48 @@
     </div>
 
     <div class="card no-print">
+      <h3>Update entry list</h3>
+      <p class="sub">Upload a revised entry list to see what changed. Nothing is
+        saved until you apply it. The event link and QR code stay the same, so
+        any posters already printed keep working.</p>
+
+      <label class="field">
+        <span>Revised entry list</span>
+        <input type="file" id="updFile" accept=".xlsx,.xls,.csv">
+      </label>
+
+      <div id="updError" class="notice error hidden"></div>
+      <div id="updNoChange" class="notice info hidden">
+        No differences — this file matches the current entry list.
+      </div>
+
+      <div id="updReview" class="hidden">
+        <div class="stats" style="margin-bottom:14px">
+          <div class="stat good"><div class="n" id="dfAdded">0</div><div class="l">Added</div></div>
+          <div class="stat bad"><div class="n" id="dfRemoved">0</div><div class="l">Removed</div></div>
+          <div class="stat"><div class="n" id="dfChanged">0</div><div class="l">Changed</div></div>
+          <div class="stat"><div class="n" id="dfSame">0</div><div class="l">Unchanged</div></div>
+        </div>
+
+        <div id="updWarn" class="notice hidden"></div>
+
+        <div class="btn-row" style="margin-bottom:12px">
+          <button id="dfAll" class="secondary small">Select all</button>
+          <button id="dfNone" class="secondary small">Select none</button>
+          <span id="dfCount" class="small muted" style="align-self:center"></span>
+        </div>
+
+        <div id="dfList"></div>
+
+        <div class="btn-row" style="margin-top:18px">
+          <button id="dfApply">Apply selected changes</button>
+          <button id="dfCancel" class="secondary">Discard</button>
+        </div>
+        <div id="dfResult" class="notice hidden" style="margin-top:14px"></div>
+      </div>
+    </div>
+
+    <div class="card no-print">
       <h3>Check-in QR code</h3>
       <div class="qr-panel">
         <div class="qr-box" id="qrBox"></div>

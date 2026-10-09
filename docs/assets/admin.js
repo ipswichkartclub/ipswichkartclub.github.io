@@ -20,6 +20,7 @@
     lastUpdated: null,
     collapsed: {},     // class name -> true, for the By class view
     sig: null,         // fingerprint of the last rendered list
+    diff: null,        // pending entry-list update under review
   };
 
   var REFRESH_MS = 15000;
@@ -382,6 +383,7 @@
     show('viewEvent');
     state.sig = null;
     state.collapsed = {};
+    resetDiff();                    // a diff belongs to the event it was built from
     $('paneBody').innerHTML = '<p class="muted"><span class="spinner"></span>Loading…</p>';
     loadDetail(id).then(function () {
       renderQr(id);
@@ -582,6 +584,396 @@
     renderPane();
   }
 
+  /* ------------------------------------------------- update / diff roster */
+
+  /**
+   * Compare a freshly parsed entry list against the event as it stands.
+   *
+   * People are matched on CRN first, then by name for anyone left over, so a
+   * driver who gains or loses a CRN between revisions is seen as the same
+   * person rather than as a removal plus an addition. Within a person, entries
+   * are matched on class (the roster never holds two entries in one class).
+   */
+  function buildDiff(rows) {
+    var people = state.detail.people;
+
+    // ---- index the current roster
+    var curByCrn = {}, curByName = {}, curUsed = {};
+    people.forEach(function (p) {
+      if (p.crn) curByCrn[String(p.crn).trim().toLowerCase()] = p;
+      var n = (p.entrant || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      if (n && !curByName[n]) curByName[n] = p;
+    });
+
+    // ---- collapse the new file into people + entries, same rule as upload
+    var incoming = [];
+    var byKey = {};
+    rows.forEach(function (r, i) {
+      var entrant = String(r.entrant || '').trim();
+      var cls = String(r.class || '').trim();
+      if (!entrant || !cls) return;
+      var crn = String(r.crn || '').trim();
+      var key = crn || entrant.toLowerCase().replace(/\s+/g, ' ');
+      if (!byKey[key]) {
+        byKey[key] = {
+          key: key, crn: crn, entrant: entrant,
+          guardian: String(r.guardian || '').trim(),
+          email: String(r.email || '').trim(),
+          mobile: String(r.mobile || '').trim(),
+          homeClub: String(r.homeClub || '').trim(),
+          entries: [],
+        };
+        incoming.push(byKey[key]);
+      } else if (String(r.guardian || '').trim() && !byKey[key].guardian) {
+        byKey[key].guardian = String(r.guardian || '').trim();
+      }
+      byKey[key].entries.push({
+        kartNo: String(r.kartNo == null ? '' : r.kartNo).trim(),
+        class: cls,
+        transponder: String(r.transponder || '').trim(),
+        kart: String(r.kart || '').trim(),
+        engine: String(r.engine || '').trim(),
+        memberType: String(r.memberType || '').trim(),
+        rowNo: i + 1,
+      });
+    });
+
+    var changes = [];
+    var same = 0;
+
+    // ---- added + changed
+    incoming.forEach(function (inc) {
+      var cur = null;
+      if (inc.crn) cur = curByCrn[inc.crn.toLowerCase()] || null;
+      if (!cur) {
+        var n = inc.entrant.toLowerCase().replace(/\s+/g, ' ');
+        if (curByName[n] && !curUsed[curByName[n].personId]) cur = curByName[n];
+      }
+
+      if (!cur) {
+        changes.push({
+          type: 'addPerson',
+          label: inc.entrant,
+          detail: inc.entries.map(function (e) { return e.class + ' #' + e.kartNo; }).join(' · '),
+          isMinor: isMinorGuardian(inc.guardian),
+          op: { op: 'addPerson', person: {
+            entrant: inc.entrant, guardian: inc.guardian, crn: inc.crn,
+            email: inc.email, mobile: inc.mobile, homeClub: inc.homeClub,
+          }, entries: inc.entries },
+        });
+        return;
+      }
+
+      curUsed[cur.personId] = true;
+      var touched = false;
+
+      // ---- person-level detail changes
+      var fields = {};
+      var shown = [];
+      [['entrant', 'Name'], ['guardian', 'Guardian'], ['crn', 'CRN'],
+       ['email', 'Email'], ['mobile', 'Mobile'], ['homeClub', 'Home club']]
+        .forEach(function (pair) {
+          var k = pair[0];
+          var was = String(cur[k] == null ? '' : cur[k]).trim();
+          var now = String(inc[k] == null ? '' : inc[k]).trim();
+          if (was === now) return;
+          fields[k] = now;
+          shown.push({ field: pair[1], was: was, now: now });
+        });
+      if (shown.length) {
+        touched = true;
+        changes.push({
+          type: 'updatePerson',
+          label: cur.entrant,
+          detail: shown.map(function (s) { return s.field; }).join(', ') + ' changed',
+          fieldRows: shown,
+          checkedIn: cur.checkedIn,
+          op: { op: 'updatePerson', personId: cur.personId, fields: fields },
+        });
+      }
+
+      // ---- entry-level changes, matched on class
+      var curEntries = {};
+      (cur.entries || []).forEach(function (e) { curEntries[e.class] = e; });
+      var seen = {};
+
+      inc.entries.forEach(function (e) {
+        seen[e.class] = true;
+        var ce = curEntries[e.class];
+        if (!ce) {
+          touched = true;
+          changes.push({
+            type: 'addEntry',
+            label: cur.entrant,
+            detail: 'added to ' + e.class + ' as #' + e.kartNo,
+            op: { op: 'addEntry', personId: cur.personId, entry: e },
+          });
+          return;
+        }
+        var ef = {};
+        var es = [];
+        [['kartNo', 'Kart no'], ['transponder', 'Transponder'],
+         ['kart', 'Kart'], ['engine', 'Engine'], ['memberType', 'Member type']]
+          .forEach(function (pair) {
+            var k = pair[0];
+            var was = String(ce[k] == null ? '' : ce[k]).trim();
+            var now = String(e[k] == null ? '' : e[k]).trim();
+            if (was === now) return;
+            ef[k] = now;
+            es.push({ field: pair[1], was: was, now: now });
+          });
+        if (es.length) {
+          touched = true;
+          changes.push({
+            type: 'updateEntry',
+            label: cur.entrant,
+            detail: e.class + ': ' + es.map(function (s) { return s.field; }).join(', ') + ' changed',
+            fieldRows: es,
+            checkedIn: cur.checkedIn,
+            op: { op: 'updateEntry', entryId: ce.id, fields: ef },
+          });
+        }
+      });
+
+      (cur.entries || []).forEach(function (ce) {
+        if (seen[ce.class]) return;
+        touched = true;
+        changes.push({
+          type: 'removeEntry',
+          label: cur.entrant,
+          detail: 'withdrawn from ' + ce.class + ' (#' + ce.kartNo + ')',
+          checkedIn: cur.checkedIn,
+          op: { op: 'removeEntry', entryId: ce.id },
+        });
+      });
+
+      if (!touched) same++;
+    });
+
+    // ---- removed people
+    people.forEach(function (p) {
+      if (curUsed[p.personId]) return;
+      changes.push({
+        type: 'removePerson',
+        label: p.entrant,
+        detail: (p.entries || []).map(function (e) { return e.class + ' #' + e.kartNo; }).join(' · ')
+          || 'no entries',
+        checkedIn: p.checkedIn,
+        op: { op: 'removePerson', personId: p.personId, confirmCheckedIn: true },
+      });
+    });
+
+    return { changes: changes, same: same };
+  }
+
+  function isMinorGuardian(g) {
+    var s = String(g || '').trim();
+    return s !== '' && s.toLowerCase() !== 'not applicable';
+  }
+
+  var DIFF_META = {
+    addPerson:    { group: 'Added drivers',         cls: 'good' },
+    removePerson: { group: 'Removed drivers',       cls: 'bad'  },
+    addEntry:     { group: 'Added class entries',   cls: 'good' },
+    removeEntry:  { group: 'Removed class entries', cls: 'bad'  },
+    updatePerson: { group: 'Updated details',       cls: ''     },
+    updateEntry:  { group: 'Updated details',       cls: ''     },
+  };
+  var DIFF_ORDER = ['addPerson', 'addEntry', 'removePerson', 'removeEntry', 'updatePerson', 'updateEntry'];
+
+  function renderDiff() {
+    var d = state.diff;
+    var added = d.changes.filter(function (c) { return c.type === 'addPerson'; }).length;
+    var removed = d.changes.filter(function (c) { return c.type === 'removePerson'; }).length;
+    var changed = d.changes.length - added - removed;
+
+    $('dfAdded').textContent = added;
+    $('dfRemoved').textContent = removed;
+    $('dfChanged').textContent = changed;
+    $('dfSame').textContent = d.same;
+
+    // anything touching a driver who has already checked in deserves a warning
+    var risky = d.changes.filter(function (c) { return c.checkedIn; });
+    if (risky.length) {
+      $('updWarn').innerHTML = '<b>' + risky.length + ' change' + (risky.length === 1 ? '' : 's')
+        + ' affect' + (risky.length === 1 ? 's' : '') + ' a driver who has already checked in.</b><br>'
+        + 'Removing them also deletes their check-in record. They are marked below.';
+      $('updWarn').classList.remove('hidden');
+    } else {
+      $('updWarn').classList.add('hidden');
+    }
+
+    var groups = {};
+    var order = [];
+    DIFF_ORDER.forEach(function (t) {
+      var items = d.changes.filter(function (c) { return c.type === t; });
+      if (!items.length) return;
+      var g = DIFF_META[t].group;
+      if (!groups[g]) { groups[g] = []; order.push(g); }
+      groups[g] = groups[g].concat(items);
+    });
+
+    var html = '';
+    order.forEach(function (g) {
+      var items = groups[g];
+      html += '<div class="diff-group"><h4>' + esc(g) + '<span class="n">' + items.length + '</span></h4>';
+      items.forEach(function (c) {
+        var i = d.changes.indexOf(c);
+        html += '<label class="diff-row' + (DIFF_META[c.type].cls ? ' ' + DIFF_META[c.type].cls : '') + '">' +
+          '<input type="checkbox" data-df="' + i + '"' + (c.selected ? ' checked' : '') + '>' +
+          '<span class="diff-body">' +
+            '<span class="diff-name">' + esc(c.label) +
+              (c.checkedIn ? ' <span class="tag admin">checked in</span>' : '') +
+              (c.isMinor ? ' <span class="tag minor">minor driver</span>' : '') +
+            '</span>' +
+            '<span class="diff-detail">' + esc(c.detail) + '</span>' +
+            (c.fieldRows ? '<span class="diff-fields">' + c.fieldRows.map(function (f) {
+              return '<span class="diff-field"><b>' + esc(f.field) + '</b> ' +
+                '<s>' + esc(f.was || '(blank)') + '</s> &rarr; ' +
+                '<i>' + esc(f.now || '(blank)') + '</i></span>';
+            }).join('') + '</span>' : '') +
+          '</span>' +
+        '</label>';
+      });
+      html += '</div>';
+    });
+
+    $('dfList').innerHTML = html;
+    updateDiffCount();
+  }
+
+  function updateDiffCount() {
+    var n = state.diff.changes.filter(function (c) { return c.selected; }).length;
+    $('dfCount').textContent = n + ' of ' + state.diff.changes.length + ' selected';
+    $('dfApply').disabled = n === 0;
+    $('dfApply').textContent = n ? 'Apply ' + n + ' change' + (n === 1 ? '' : 's') : 'Apply selected changes';
+  }
+
+  function resetDiff() {
+    state.diff = null;
+    $('updFile').value = '';
+    $('updReview').classList.add('hidden');
+    $('updNoChange').classList.add('hidden');
+    $('updError').classList.add('hidden');
+    $('dfResult').classList.add('hidden');
+  }
+
+  $('updFile').addEventListener('change', function () {
+    var file = this.files && this.files[0];
+    $('updError').classList.add('hidden');
+    $('updNoChange').classList.add('hidden');
+    $('updReview').classList.add('hidden');
+    $('dfResult').classList.add('hidden');
+    state.diff = null;
+    if (!file) return;
+
+    parseWorkbook(file)
+      .then(function (rows) {
+        var d = buildDiff(rows);
+        if (!d.changes.length) {
+          $('dfSame').textContent = d.same;
+          $('updNoChange').classList.remove('hidden');
+          return;
+        }
+        // removals are NOT pre-selected: they are the destructive ones
+        d.changes.forEach(function (c) {
+          c.selected = (c.type !== 'removePerson' && c.type !== 'removeEntry');
+        });
+        state.diff = d;
+        renderDiff();
+        $('updReview').classList.remove('hidden');
+      })
+      .catch(function (err) {
+        $('updError').textContent = err.message;
+        $('updError').classList.remove('hidden');
+      });
+  });
+
+  $('dfList').addEventListener('change', function (ev) {
+    var cb = ev.target.closest('input[data-df]');
+    if (!cb) return;
+    state.diff.changes[Number(cb.getAttribute('data-df'))].selected = cb.checked;
+    updateDiffCount();
+  });
+
+  $('dfAll').addEventListener('click', function () {
+    state.diff.changes.forEach(function (c) { c.selected = true; });
+    renderDiff();
+  });
+  $('dfNone').addEventListener('click', function () {
+    state.diff.changes.forEach(function (c) { c.selected = false; });
+    renderDiff();
+  });
+  $('dfCancel').addEventListener('click', resetDiff);
+
+  $('dfApply').addEventListener('click', function () {
+    var picked = state.diff.changes.filter(function (c) { return c.selected; });
+    if (!picked.length) return;
+
+    var destructive = picked.filter(function (c) { return c.checkedIn && c.type === 'removePerson'; });
+    if (destructive.length && !confirm(
+      destructive.length + ' driver' + (destructive.length === 1 ? '' : 's')
+      + ' being removed have already checked in.\n\n'
+      + destructive.map(function (c) { return '  - ' + c.label; }).join('\n')
+      + '\n\nTheir check-in records will be deleted. Continue?')) return;
+
+    var btn = this;
+    var ops = picked.map(function (c) { return c.op; });
+    var eventId = state.detail.event.id;
+    var done = 0;
+    btn.disabled = true;
+    $('dfResult').classList.add('hidden');
+
+    // chunked so each request stays inside the Workers CPU limit
+    function send(i, totals) {
+      if (i >= ops.length) return Promise.resolve(totals);
+      var slice = ops.slice(i, i + 25);
+      btn.innerHTML = '<span class="spinner"></span>Applying ' + done + ' of ' + ops.length + '…';
+      return api('/api/admin/events/' + encodeURIComponent(eventId) + '/apply', {
+        method: 'POST',
+        body: JSON.stringify({ ops: slice }),
+      }).then(function (res) {
+        done += slice.length;
+        totals.push(res);
+        return send(i + 25, totals);
+      });
+    }
+
+    send(0, [])
+      .then(function (results) {
+        var skipped = results.reduce(function (a, r) { return a.concat(r.skipped || []); }, []);
+        var last = results[results.length - 1] || {};
+        var msg = '<b>Applied ' + ops.length + ' change' + (ops.length === 1 ? '' : 's') + '.</b>';
+        if (last.total) {
+          msg += ' The entry list now holds ' + last.total.people + ' drivers across '
+            + last.total.entries + ' entries.';
+        }
+        if (skipped.length) {
+          msg += '<br><b>' + skipped.length + ' could not be applied:</b> '
+            + skipped.map(function (s) { return esc(s.why); }).join(', ') + '.';
+        }
+        $('dfResult').className = 'notice' + (skipped.length ? '' : ' info');
+        $('dfResult').innerHTML = msg;
+        $('dfResult').classList.remove('hidden');
+
+        state.diff = null;
+        $('updFile').value = '';
+        $('updReview').classList.add('hidden');
+        btn.disabled = false;
+        btn.textContent = 'Apply selected changes';
+        state.sig = null;              // force the lists below to redraw
+        return loadDetail(eventId);
+      })
+      .catch(function (err) {
+        $('dfResult').className = 'notice error';
+        $('dfResult').textContent = err.message;
+        $('dfResult').classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = 'Apply selected changes';
+        if (state.detail) loadDetail(state.detail.event.id);
+      });
+  });
+
   /* ---------------------------------------------------------- QR code */
 
   function renderQr(eventId) {
@@ -753,6 +1145,9 @@
     if (!autoWanted()) { stampUpdated(); return; }
     state.timer = setInterval(function () {
       if (!state.detail || document.hidden) return;   // don't poll a hidden tab
+      // A diff is built against a snapshot of the roster; refreshing underneath
+      // it would leave the pending changes pointing at stale rows.
+      if (state.diff) return;
       loadDetail(state.detail.event.id, true);
     }, REFRESH_MS);
     stampUpdated();

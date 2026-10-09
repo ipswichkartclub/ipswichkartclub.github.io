@@ -86,6 +86,39 @@ distinguishable.
 The CSV export carries **Checked in by**, **Briefing acknowledged** and
 **Acknowledgement wording** columns.
 
+### Updating the entry list
+
+Entry lists change right up to the meeting, so an existing event can be updated
+in place from the **Update entry list** panel. Upload the revised `.xlsx`/`.csv`
+and the admin page diffs it against the roster as it stands, then shows what
+changed, grouped as:
+
+- **Added drivers** and **added class entries**
+- **Removed drivers** and **removed class entries**
+- **Updated details** — kart number, transponder, kart, engine, member type,
+  guardian, CRN, email, mobile, home club, each shown as *was → now*
+
+Every change has a tick box, so you apply the ones you want and leave the rest.
+Nothing is written until you press apply. Removals start **unticked**, since
+they are the destructive ones.
+
+**The event id never changes**, so the check-in link and the QR code stay
+exactly the same — posters already printed keep working, and check-ins already
+recorded are untouched.
+
+Two safeguards worth knowing:
+
+- A driver who has **already checked in** is marked in the review list, and the
+  server refuses to remove them unless the request explicitly confirms it. The
+  page makes you confirm that separately, because removing them also deletes
+  their check-in record.
+- Drivers are matched on **CRN first, then name**, so a driver who is renamed,
+  or who gains a CRN they previously lacked, is recognised as the same person
+  and shows up as an update rather than a removal plus an addition.
+
+Auto-refresh pauses while a diff is on screen, so the roster cannot shift
+underneath a review.
+
 ### Device limits
 
 Check-in is de-duplicated per device (a random token in `localStorage`), with
@@ -240,6 +273,7 @@ found automatically within the first 15 rows.
 | `GET` | `/api/admin/events` | key | List meetings with counts |
 | `POST` | `/api/admin/events` | key | Create a meeting (`rows` optional) |
 | `POST` | `/api/admin/events/:id/rows` | key | Append a chunk of the entry list |
+| `POST` | `/api/admin/events/:id/apply` | key | Apply a chunk of approved roster changes |
 | `GET` | `/api/admin/events/:id` | key | People, entries, check-in status |
 | `PATCH` | `/api/admin/events/:id` | key | Rename / re-date / open / close |
 | `DELETE` | `/api/admin/events/:id` | key | Delete meeting and its check-ins |

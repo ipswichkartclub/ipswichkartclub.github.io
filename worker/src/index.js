@@ -201,6 +201,11 @@ export default {
           return await appendRows(seg[3], request, env);
         }
 
+        // POST /api/admin/events/:id/apply - apply a chunk of roster changes
+        if (seg[2] === 'events' && seg[4] === 'apply' && seg.length === 5 && request.method === 'POST') {
+          return await applyChanges(seg[3], request, env);
+        }
+
         if (seg[2] === 'events' && seg[4] === 'checkin') {
           if (request.method === 'POST' && seg.length === 5) {
             return await adminCheckin(seg[3], request, env);
@@ -564,6 +569,195 @@ async function appendRows(eventId, request, env) {
   return json({ added, total: totals }, request, env);
 }
 
+/**
+ * Apply a chunk of roster changes produced by the admin page's diff.
+ *
+ * Operations are deliberately explicit rather than "here is the new list":
+ * the Chief Steward chooses which changes to take, so the server applies
+ * exactly what was approved and nothing else.
+ *
+ * Removing a driver who has already checked in destroys that check-in record,
+ * so it is refused unless the caller passes confirmCheckedIn - the admin page
+ * makes the user tick that separately.
+ */
+async function applyChanges(eventId, request, env) {
+  const body = await request.json().catch(() => ({}));
+  const ops = Array.isArray(body.ops) ? body.ops : [];
+  if (!ops.length) return fail('No changes supplied', request, env);
+
+  const event = await env.DB.prepare('SELECT id FROM events WHERE id = ?').bind(eventId).first();
+  if (!event) return fail('Event not found', request, env, 404);
+
+  const PERSON_FIELDS = {
+    entrant: 'entrant', guardian: 'guardian', crn: 'crn',
+    email: 'email', mobile: 'mobile', homeClub: 'home_club',
+  };
+  const ENTRY_FIELDS = {
+    kartNo: 'kart_no', class: 'class', transponder: 'transponder',
+    kart: 'kart', engine: 'engine', memberType: 'member_type',
+  };
+
+  const applied = { addedPeople: 0, removedPeople: 0, updatedPeople: 0,
+                    addedEntries: 0, removedEntries: 0, updatedEntries: 0 };
+  const skipped = [];
+
+  for (const op of ops) {
+    switch (op.op) {
+      case 'addPerson': {
+        const p = op.person || {};
+        const entrant = String(p.entrant || '').trim();
+        if (!entrant) { skipped.push({ op, why: 'no entrant name' }); break; }
+        const crn = String(p.crn || '').trim();
+        const key = crn || normaliseName(entrant);
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO people (event_id, person_key, entrant, guardian, is_minor, crn, email, mobile, home_club)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(eventId, key, entrant, String(p.guardian || '').trim(),
+          hasGuardian(p.guardian) ? 1 : 0, crn,
+          String(p.email || '').trim(), String(p.mobile || '').trim(),
+          String(p.homeClub || '').trim()).run();
+
+        const made = await env.DB.prepare(
+          'SELECT id FROM people WHERE event_id = ? AND person_key = ?'
+        ).bind(eventId, key).first();
+        if (!made) { skipped.push({ op, why: 'person could not be created' }); break; }
+        applied.addedPeople++;
+
+        for (const e of (op.entries || [])) {
+          await insertEntry(env, eventId, made.id, e);
+          applied.addedEntries++;
+        }
+        break;
+      }
+
+      case 'removePerson': {
+        const personId = Number(op.personId);
+        const person = await env.DB.prepare(
+          'SELECT id FROM people WHERE id = ? AND event_id = ?'
+        ).bind(personId, eventId).first();
+        if (!person) { skipped.push({ op, why: 'driver not found' }); break; }
+
+        const checkedIn = await env.DB.prepare(
+          'SELECT id FROM checkins WHERE event_id = ? AND person_id = ?'
+        ).bind(eventId, personId).first();
+        if (checkedIn && op.confirmCheckedIn !== true) {
+          skipped.push({ op, why: 'driver has already checked in' });
+          break;
+        }
+
+        await env.DB.batch([
+          env.DB.prepare('DELETE FROM checkins WHERE event_id = ? AND person_id = ?').bind(eventId, personId),
+          env.DB.prepare('DELETE FROM entries  WHERE event_id = ? AND person_id = ?').bind(eventId, personId),
+          env.DB.prepare('DELETE FROM people   WHERE event_id = ? AND id = ?').bind(eventId, personId),
+        ]);
+        applied.removedPeople++;
+        break;
+      }
+
+      case 'updatePerson': {
+        const personId = Number(op.personId);
+        const sets = [];
+        const binds = [];
+        for (const [k, col] of Object.entries(PERSON_FIELDS)) {
+          if (op.fields && Object.prototype.hasOwnProperty.call(op.fields, k)) {
+            sets.push(col + ' = ?');
+            binds.push(String(op.fields[k] == null ? '' : op.fields[k]).trim());
+          }
+        }
+        // the minor-driver flag is derived, never taken from the client
+        if (op.fields && Object.prototype.hasOwnProperty.call(op.fields, 'guardian')) {
+          sets.push('is_minor = ?');
+          binds.push(hasGuardian(op.fields.guardian) ? 1 : 0);
+        }
+        if (!sets.length) { skipped.push({ op, why: 'nothing to update' }); break; }
+        binds.push(personId, eventId);
+        const res = await env.DB.prepare(
+          `UPDATE people SET ${sets.join(', ')} WHERE id = ? AND event_id = ?`
+        ).bind(...binds).run();
+        if (res.meta.changes) applied.updatedPeople++;
+        else skipped.push({ op, why: 'driver not found' });
+        break;
+      }
+
+      case 'addEntry': {
+        const personId = Number(op.personId);
+        const person = await env.DB.prepare(
+          'SELECT id FROM people WHERE id = ? AND event_id = ?'
+        ).bind(personId, eventId).first();
+        if (!person) { skipped.push({ op, why: 'driver not found' }); break; }
+        await insertEntry(env, eventId, personId, op.entry || {});
+        applied.addedEntries++;
+        break;
+      }
+
+      case 'removeEntry': {
+        const res = await env.DB.prepare(
+          'DELETE FROM entries WHERE id = ? AND event_id = ?'
+        ).bind(Number(op.entryId), eventId).run();
+        if (res.meta.changes) applied.removedEntries++;
+        else skipped.push({ op, why: 'entry not found' });
+        break;
+      }
+
+      case 'updateEntry': {
+        const sets = [];
+        const binds = [];
+        for (const [k, col] of Object.entries(ENTRY_FIELDS)) {
+          if (op.fields && Object.prototype.hasOwnProperty.call(op.fields, k)) {
+            sets.push(col + ' = ?');
+            binds.push(String(op.fields[k] == null ? '' : op.fields[k]).trim());
+          }
+        }
+        if (!sets.length) { skipped.push({ op, why: 'nothing to update' }); break; }
+        binds.push(Number(op.entryId), eventId);
+        const res = await env.DB.prepare(
+          `UPDATE entries SET ${sets.join(', ')} WHERE id = ? AND event_id = ?`
+        ).bind(...binds).run();
+        if (res.meta.changes) applied.updatedEntries++;
+        else skipped.push({ op, why: 'entry not found' });
+        break;
+      }
+
+      default:
+        skipped.push({ op, why: 'unknown operation' });
+    }
+  }
+
+  // A person left with no entries at all is dead weight on the roster.
+  const orphans = await env.DB.prepare(
+    `SELECT p.id FROM people p
+      WHERE p.event_id = ?
+        AND NOT EXISTS (SELECT 1 FROM entries e WHERE e.person_id = p.id)
+        AND NOT EXISTS (SELECT 1 FROM checkins c WHERE c.person_id = p.id)`
+  ).bind(eventId).all();
+  if (orphans.results.length) {
+    const del = env.DB.prepare('DELETE FROM people WHERE id = ? AND event_id = ?');
+    await chunkedBatch(env.DB, orphans.results.map((o) => del.bind(o.id, eventId)));
+    applied.removedPeople += orphans.results.length;
+  }
+
+  const totals = await env.DB.prepare(
+    `SELECT (SELECT COUNT(*) FROM people  WHERE event_id = ?) AS people,
+            (SELECT COUNT(*) FROM entries WHERE event_id = ?) AS entries`
+  ).bind(eventId, eventId).first();
+
+  return json({ applied, skipped, total: totals }, request, env);
+}
+
+function insertEntry(env, eventId, personId, e) {
+  return env.DB.prepare(
+    `INSERT INTO entries (event_id, person_id, kart_no, class, transponder, kart, engine, member_type, row_no)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(eventId, personId,
+    String(e.kartNo == null ? '' : e.kartNo).trim(),
+    String(e.class || '').trim(),
+    String(e.transponder || '').trim(),
+    String(e.kart || '').trim(),
+    String(e.engine || '').trim(),
+    String(e.memberType || '').trim(),
+    Number(e.rowNo) || 0).run();
+}
+
 async function getEventDetail(eventId, request, env) {
   const event = await env.DB.prepare(
     'SELECT id, name, event_date, status, created_at FROM events WHERE id = ?'
@@ -581,8 +775,10 @@ async function getEventDetail(eventId, request, env) {
       ORDER BY p.entrant COLLATE NOCASE`
   ).bind(eventId).all();
 
+  // every column the update diff compares has to come back here
   const { results: entries } = await env.DB.prepare(
-    `SELECT id, person_id AS personId, kart_no AS kartNo, class, transponder, member_type AS memberType
+    `SELECT id, person_id AS personId, kart_no AS kartNo, class, transponder,
+            kart, engine, member_type AS memberType
        FROM entries WHERE event_id = ?
       ORDER BY class, CAST(kart_no AS INTEGER), kart_no`
   ).bind(eventId).all();
@@ -591,9 +787,12 @@ async function getEventDetail(eventId, request, env) {
   for (const e of entries) {
     if (!byPerson.has(e.personId)) byPerson.set(e.personId, []);
     byPerson.get(e.personId).push({
+      id: e.id,
       kartNo: String(e.kartNo),
       class: e.class,
       transponder: e.transponder,
+      kart: e.kart,
+      engine: e.engine,
       memberType: e.memberType,
     });
   }

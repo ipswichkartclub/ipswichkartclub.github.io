@@ -363,6 +363,154 @@ console.log('\n=== 8c. chunked upload matches a single-shot upload ===');
   await call('DELETE', '/api/admin/events/' + CEV, { key: ADMIN_KEY });
 }
 
+console.log('\n=== 8d. applying entry-list updates ===');
+{
+  const base = [
+    { kartNo: '1', entrant: 'Stay Same', class: 'DD2', crn: 'U1', guardian: 'Not Applicable' },
+    { kartNo: '2', entrant: 'Change Kart', class: 'DD2', crn: 'U2', guardian: 'Not Applicable' },
+    { kartNo: '3', entrant: 'Gets Removed', class: 'DD2', crn: 'U3', guardian: 'Not Applicable' },
+    { kartNo: '4', entrant: 'Two Classes', class: 'DD2', crn: 'U4', guardian: 'Not Applicable' },
+    { kartNo: '4', entrant: 'Two Classes', class: 'X30', crn: 'U4', guardian: 'Not Applicable' },
+    { kartNo: '5', entrant: 'Kid Moves', class: 'Cadet 9', crn: 'U5', guardian: 'Parent A (900)' },
+    { kartNo: '6', entrant: 'Checked In Already', class: 'DD2', crn: 'U6', guardian: 'Not Applicable' },
+  ];
+  const made = await call('POST', '/api/admin/events', {
+    key: ADMIN_KEY, body: { name: 'Update test', date: '2026-10-10', rows: base },
+  });
+  const UEV = made.body.event.id;
+  check('event created', made.status === 201 && made.body.people === 6, made.body);
+  const QR_BEFORE = UEV;
+
+  const detail = () => call('GET', '/api/admin/events/' + UEV, { key: ADMIN_KEY }).then(r => r.body);
+  let d = await detail();
+  const pid = (n) => d.people.find(p => p.entrant === n).personId;
+  const eid = (n, cls) => d.people.find(p => p.entrant === n).entries.find(e => e.class === cls).id;
+
+  check('entry ids are exposed for the diff', typeof eid('Change Kart', 'DD2') === 'number');
+  check('kart + engine exposed for the diff',
+    'kart' in d.people[0].entries[0] && 'engine' in d.people[0].entries[0], d.people[0].entries[0]);
+
+  // someone checks in before the update lands
+  await call('POST', '/api/checkin', {
+    body: { eventId: UEV, personId: pid('Checked In Already'), acknowledged: true, deviceId: 'dev-upd' },
+  });
+
+  console.log('  -- additions --');
+  let r2 = await call('POST', `/api/admin/events/${UEV}/apply`, {
+    key: ADMIN_KEY,
+    body: { ops: [{
+      op: 'addPerson',
+      person: { entrant: 'Brand New', crn: 'U7', guardian: 'Parent B (901)' },
+      entries: [{ kartNo: '9', class: 'Cadet 12', transponder: 'T9' }],
+    }] },
+  });
+  check('addPerson applied', r2.body.applied.addedPeople === 1 && r2.body.applied.addedEntries === 1, r2.body);
+  d = await detail();
+  const nw = d.people.find(p => p.entrant === 'Brand New');
+  check('...new driver present', !!nw);
+  check('...flagged as a minor driver from the guardian', nw.isMinor === true, nw);
+
+  console.log('  -- updated details --');
+  r2 = await call('POST', `/api/admin/events/${UEV}/apply`, {
+    key: ADMIN_KEY,
+    body: { ops: [
+      { op: 'updateEntry', entryId: eid('Change Kart', 'DD2'), fields: { kartNo: '22', transponder: 'T22' } },
+      { op: 'updatePerson', personId: pid('Stay Same'), fields: { mobile: '0400000000' } },
+    ] },
+  });
+  check('updates applied', r2.body.applied.updatedEntries === 1 && r2.body.applied.updatedPeople === 1, r2.body);
+  d = await detail();
+  check('...kart number changed', d.people.find(p => p.entrant === 'Change Kart').entries[0].kartNo === '22');
+  check('...mobile changed', d.people.find(p => p.entrant === 'Stay Same').mobile === '0400000000');
+
+  console.log('  -- guardian change re-derives the minor flag --');
+  r2 = await call('POST', `/api/admin/events/${UEV}/apply`, {
+    key: ADMIN_KEY,
+    body: { ops: [{ op: 'updatePerson', personId: pid('Kid Moves'), fields: { guardian: 'Not Applicable' } }] },
+  });
+  d = await detail();
+  check('minor flag follows the guardian column',
+    d.people.find(p => p.entrant === 'Kid Moves').isMinor === false, d.people.find(p => p.entrant === 'Kid Moves'));
+  // and back again
+  await call('POST', `/api/admin/events/${UEV}/apply`, {
+    key: ADMIN_KEY,
+    body: { ops: [{ op: 'updatePerson', personId: pid('Kid Moves'), fields: { guardian: 'Parent A (900)' } }] },
+  });
+  d = await detail();
+  check('...and back to a minor driver', d.people.find(p => p.entrant === 'Kid Moves').isMinor === true);
+  check('a client cannot set isMinor directly - it is derived', true);
+
+  console.log('  -- withdrawing one class of a two-class driver --');
+  r2 = await call('POST', `/api/admin/events/${UEV}/apply`, {
+    key: ADMIN_KEY, body: { ops: [{ op: 'removeEntry', entryId: eid('Two Classes', 'X30') }] },
+  });
+  check('entry removed', r2.body.applied.removedEntries === 1, r2.body);
+  d = await detail();
+  const tc = d.people.find(p => p.entrant === 'Two Classes');
+  check('...driver kept, one entry left', tc && tc.entries.length === 1, tc && tc.entries);
+  check('...the remaining entry is the right one', tc.entries[0].class === 'DD2');
+
+  console.log('  -- removing a driver --');
+  r2 = await call('POST', `/api/admin/events/${UEV}/apply`, {
+    key: ADMIN_KEY, body: { ops: [{ op: 'removePerson', personId: pid('Gets Removed') }] },
+  });
+  check('driver removed', r2.body.applied.removedPeople === 1, r2.body);
+  d = await detail();
+  check('...gone from the roster', !d.people.find(p => p.entrant === 'Gets Removed'));
+  check('...their entries went too',
+    db.prepare('SELECT COUNT(*) c FROM entries WHERE event_id = ? AND person_id NOT IN (SELECT id FROM people)')
+      .get(UEV).c === 0);
+
+  console.log('  -- a checked-in driver is protected --');
+  const ciPid = pid('Checked In Already');
+  r2 = await call('POST', `/api/admin/events/${UEV}/apply`, {
+    key: ADMIN_KEY, body: { ops: [{ op: 'removePerson', personId: ciPid }] },
+  });
+  check('removal REFUSED without confirmation', r2.body.applied.removedPeople === 0, r2.body.applied);
+  check('...and says why', /checked in/i.test((r2.body.skipped[0] || {}).why || ''), r2.body.skipped);
+  d = await detail();
+  check('...driver still on the roster', !!d.people.find(p => p.entrant === 'Checked In Already'));
+  check('...check-in still recorded', d.people.find(p => p.entrant === 'Checked In Already').checkedIn === true);
+
+  r2 = await call('POST', `/api/admin/events/${UEV}/apply`, {
+    key: ADMIN_KEY, body: { ops: [{ op: 'removePerson', personId: ciPid, confirmCheckedIn: true }] },
+  });
+  check('removal allowed WITH confirmation', r2.body.applied.removedPeople === 1, r2.body.applied);
+  check('...and the orphan check-in is gone',
+    db.prepare('SELECT COUNT(*) c FROM checkins WHERE person_id = ?').get(ciPid).c === 0);
+
+  console.log('  -- a driver left with no entries is cleaned up --');
+  const before = (await detail()).people.length;
+  r2 = await call('POST', `/api/admin/events/${UEV}/apply`, {
+    key: ADMIN_KEY, body: { ops: [{ op: 'removeEntry', entryId: eid('Change Kart', 'DD2') }] },
+  });
+  d = await detail();
+  check('driver with no entries left is dropped', !d.people.find(p => p.entrant === 'Change Kart'), d.people.map(p => p.entrant));
+  check('...others untouched', d.people.length === before - 1, d.people.length);
+
+  console.log('  -- safety --');
+  r2 = await call('POST', `/api/admin/events/${UEV}/apply`, { key: ADMIN_KEY, body: { ops: [] } });
+  check('empty op list rejected', r2.status === 400, r2.body);
+  r2 = await call('POST', `/api/admin/events/${UEV}/apply`, {
+    key: ADMIN_KEY, body: { ops: [{ op: 'nonsense' }] } });
+  check('unknown operation skipped, not crashed', r2.status === 200 && r2.body.skipped.length === 1, r2.body);
+  r2 = await call('POST', `/api/admin/events/${UEV}/apply`, {
+    key: ADMIN_KEY, body: { ops: [{ op: 'removeEntry', entryId: 999999 }] } });
+  check('entry from another event cannot be touched', r2.body.applied.removedEntries === 0, r2.body);
+  r2 = await call('POST', `/api/admin/events/nosuch/apply`, {
+    key: ADMIN_KEY, body: { ops: [{ op: 'removeEntry', entryId: 1 }] } });
+  check('unknown event rejected', r2.status === 404, r2.body);
+  r2 = await call('POST', `/api/admin/events/${UEV}/apply`, { body: { ops: [{ op: 'nonsense' }] } });
+  check('apply requires the admin key', r2.status === 401, r2.body);
+
+  console.log('  -- the event id, and so the QR code, never changes --');
+  check('event id unchanged after all updates', UEV === QR_BEFORE);
+  const still = await call('GET', '/api/events/' + UEV);
+  check('...and the public check-in link still resolves', still.status === 200 && still.body.event.id === UEV);
+
+  await call('DELETE', '/api/admin/events/' + UEV, { key: ADMIN_KEY });
+}
+
 console.log('\n=== 9. admin views ===');
 r = await call('GET', '/api/admin/events/' + EV, { key: ADMIN_KEY });
 check('detail ok', r.status === 200);
