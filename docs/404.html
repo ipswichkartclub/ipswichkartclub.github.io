@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f172a">
+<meta name="robots" content="noindex">
+<title>Driver Briefing Check-in</title>
+<link rel="stylesheet" href="/assets/styles.css?v=20261009a">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">Driver Briefing <span>Check-in</span></div>
+</header>
+
+<main class="wrap">
+  <div class="card" id="box">
+    <p class="muted"><span class="spinner"></span>Finding your check-in page&hellip;</p>
+  </div>
+</main>
+
+<script>
+/*
+ * Rescue page.
+ *
+ * A QR poster printed from an older build can carry a malformed check-in link
+ * (for example /admin/index.html?e=abc123). Rather than showing a driver a bare
+ * GitHub 404 at the briefing, recover the event id from the URL and send them
+ * to the real check-in page. Posters already in the wild keep working.
+ */
+(function () {
+  var box = document.getElementById('box');
+
+  function eventId() {
+    // ?e= / ?event= anywhere in the query
+    var qs = new URLSearchParams(location.search);
+    var id = qs.get('e') || qs.get('event');
+    if (id) return id;
+    // or stranded in the path, e.g. /something/abc123
+    var m = location.pathname.match(/\/([a-z0-9]{6})\/?$/i);
+    return m ? m[1] : '';
+  }
+
+  var id = eventId();
+  if (id) {
+    var to = location.origin + '/?e=' + encodeURIComponent(id);
+    box.innerHTML = '<p class="muted"><span class="spinner"></span>Taking you to check-in&hellip;</p>';
+    location.replace(to);
+    return;
+  }
+
+  box.innerHTML =
+    '<h2>Page not found</h2>' +
+    '<p class="sub">This link does not point at a check-in page.</p>' +
+    '<p>Scan the QR code displayed at the driver briefing, or see the Chief Steward ' +
+    'for the current check-in link.</p>';
+})();
+</script>
+</body>
+</html>
